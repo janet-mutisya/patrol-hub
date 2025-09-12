@@ -1,2 +1,11 @@
+# Node modules
 node_modules/
+server/node_modules/
+client/patrol-system/node_modules/
+
+# Environment files
 .env
+
+# Optional: OS or editor files
+.DS_Store
+*.log
