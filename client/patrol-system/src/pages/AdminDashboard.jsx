@@ -1,695 +1,974 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
+import { 
+  Menu,
+  X,
   Shield,
   Users,
-  MapPin,
-  Target,
   Clock,
-  TrendingUp,
+  MapPin,
+  Calendar,
+  FileText,
   AlertTriangle,
-  CheckCircle,
+  RefreshCw,
+  User,
+  LogOut,
   Activity,
-  Phone,
-  Eye,
-  UserCheck,
-  FileDown,
   Plus,
-  UserPlus,
-  Settings,
-  Bell,
-  Loader2,
+  Edit,
+  Trash2,
+  Eye,
   Search,
   Filter,
-  Download,
-  Calendar,
-  BarChart3,
-  RefreshCw
+  Download
 } from 'lucide-react';
 
-// Configuration - matches the Guard Dashboard API config
-const API_CONFIG = {
-  baseUrl: 'https://api.security-system.com',
-  authToken: 'demo-admin-token'
-};
-
-// Real API call implementation
-const apiCall = async (endpoint, options = {}) => {
-  const { method = 'GET', body } = options;
+const AdminDashboard = ({ token, onLogout }) => {
+  // Sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('guards');
   
-  try {
-    const response = await fetch(`${API_CONFIG.baseUrl}${endpoint}`, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_CONFIG.authToken}`,
-        ...options.headers
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('API call failed, using mock data:', error);
-    // Fallback to mock data for demo
-    return mockApiCall(endpoint, options);
-  }
-};
-
-// Enhanced mock API with more comprehensive data
-const mockApiCall = async (endpoint, options = {}) => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  const { method = 'GET', body } = options;
-  
-  if (endpoint === '/api/patrol-logs' && method === 'GET') {
-    return {
-      success: true,
-      data: [
-        {
-          id: 'PL001',
-          guardId: 'G001',
-          guardName: 'John Doe',
-          guardBadge: 'GUARD-001',
-          checkpointId: 'CP001',
-          checkpointName: 'Security Desk 2',
-          status: 'completed',
-          startTime: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          endTime: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-          latitude: -1.2921,
-          longitude: 36.8219,
-          notes: 'All clear, no incidents reported',
-          incidentsReported: 0,
-          assignedDuration: 60,
-          actualDuration: 55
-        },
-        {
-          id: 'PL002',
-          guardId: 'G002',
-          guardName: 'Jane Smith',
-          guardBadge: 'GUARD-002',
-          checkpointId: 'CP002',
-          checkpointName: 'Silo Parking 2nd Flr',
-          status: 'completed',
-          startTime: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-          endTime: new Date(Date.now() - 2.5 * 60 * 60 * 1000).toISOString(),
-          latitude: -1.2925,
-          longitude: 36.8215,
-          notes: 'Routine patrol completed, minor maintenance issue noted',
-          incidentsReported: 0,
-          assignedDuration: 45,
-          actualDuration: 30
-        },
-        {
-          id: 'PL003',
-          guardId: 'G003',
-          guardName: 'Mike Johnson',
-          guardBadge: 'GUARD-003',
-          checkpointId: 'CP001',
-          checkpointName: 'Security Desk 2',
-          status: 'overdue',
-          startTime: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-          endTime: null,
-          latitude: -1.2921,
-          longitude: 36.8219,
-          notes: 'Scheduled patrol - no response from guard',
-          incidentsReported: 1,
-          assignedDuration: 60,
-          actualDuration: null
-        },
-        {
-          id: 'PL004',
-          guardId: 'G001',
-          guardName: 'John Doe',
-          guardBadge: 'GUARD-001',
-          checkpointId: 'CP003',
-          checkpointName: 'Main Entrance',
-          status: 'active',
-          startTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-          endTime: null,
-          latitude: -1.2918,
-          longitude: 36.8222,
-          notes: 'Currently patrolling main entrance area',
-          incidentsReported: 0,
-          assignedDuration: 90,
-          actualDuration: null
-        },
-        {
-          id: 'PL005',
-          guardId: 'G002',
-          guardName: 'Jane Smith',
-          guardBadge: 'GUARD-002',
-          checkpointId: 'CP004',
-          checkpointName: 'Parking Basement',
-          status: 'pending',
-          startTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-          endTime: null,
-          latitude: -1.2920,
-          longitude: 36.8218,
-          notes: 'Scheduled for next patrol round',
-          incidentsReported: 0,
-          assignedDuration: 45,
-          actualDuration: null
-        }
-      ]
-    };
-  }
-  
-  if (endpoint === '/api/guards' && method === 'GET') {
-    return {
-      success: true,
-      data: [
-        {
-          id: 'G001',
-          name: 'John Doe',
-          badge: 'GUARD-001',
-          email: 'john.doe@security.com',
-          phone: '+254700000001',
-          shift: 'Day Shift (08:00-16:00)',
-          status: 'active',
-          onDuty: true,
-          assignedCheckpoints: ['CP001', 'CP003'],
-          totalPatrols: 15,
-          completedPatrols: 13,
-          activePatrols: 1,
-          overduePatrols: 0,
-          completionRate: 87
-        },
-        {
-          id: 'G002',
-          name: 'Jane Smith',
-          badge: 'GUARD-002',
-          email: 'jane.smith@security.com',
-          phone: '+254700000002',
-          shift: 'Day Shift (08:00-16:00)',
-          status: 'active',
-          onDuty: true,
-          assignedCheckpoints: ['CP002', 'CP004'],
-          totalPatrols: 12,
-          completedPatrols: 11,
-          activePatrols: 0,
-          overduePatrols: 0,
-          completionRate: 92
-        },
-        {
-          id: 'G003',
-          name: 'Mike Johnson',
-          badge: 'GUARD-003',
-          email: 'mike.johnson@security.com',
-          phone: '+254700000003',
-          shift: 'Night Shift (20:00-04:00)',
-          status: 'active',
-          onDuty: false,
-          assignedCheckpoints: ['CP001', 'CP005'],
-          totalPatrols: 18,
-          completedPatrols: 14,
-          activePatrols: 0,
-          overduePatrols: 1,
-          completionRate: 78
-        },
-        {
-          id: 'G004',
-          name: 'Sarah Wilson',
-          badge: 'GUARD-004',
-          email: 'sarah.wilson@security.com',
-          phone: '+254700000004',
-          shift: 'Day Shift (08:00-16:00)',
-          status: 'active',
-          onDuty: true,
-          assignedCheckpoints: ['CP003', 'CP005'],
-          totalPatrols: 10,
-          completedPatrols: 9,
-          activePatrols: 0,
-          overduePatrols: 0,
-          completionRate: 90
-        }
-      ]
-    };
-  }
-  
-  if (endpoint === '/api/checkpoints' && method === 'GET') {
-    return {
-      success: true,
-      data: [
-        {
-          id: 'CP001',
-          name: 'Security Desk 2',
-          description: 'Primary security checkpoint at building entrance',
-          location: 'Building A - Ground Floor',
-          latitude: -1.2921,
-          longitude: 36.8219,
-          status: 'active',
-          assignedGuards: ['G001', 'G003'],
-          assignedPatrols: 4,
-          completedPatrols: 2,
-          completionRate: 50,
-          lastPatrol: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-          patrolFrequency: 120,
-          incidentCount: 1
-        },
-        {
-          id: 'CP002',
-          name: 'Silo Parking 2nd Flr',
-          description: 'Second floor parking area monitoring',
-          location: 'Building B - 2nd Floor Parking',
-          latitude: -1.2925,
-          longitude: 36.8215,
-          status: 'active',
-          assignedGuards: ['G002'],
-          assignedPatrols: 4,
-          completedPatrols: 3,
-          completionRate: 75,
-          lastPatrol: new Date(Date.now() - 2.5 * 60 * 60 * 1000).toISOString(),
-          patrolFrequency: 180,
-          incidentCount: 0
-        },
-        {
-          id: 'CP003',
-          name: 'Main Entrance',
-          description: 'Main visitor entry and exit monitoring',
-          location: 'Building C - Main Entrance',
-          latitude: -1.2918,
-          longitude: 36.8222,
-          status: 'active',
-          assignedGuards: ['G001', 'G004'],
-          assignedPatrols: 3,
-          completedPatrols: 2,
-          completionRate: 67,
-          lastPatrol: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-          patrolFrequency: 240,
-          incidentCount: 0
-        },
-        {
-          id: 'CP004',
-          name: 'Parking Basement',
-          description: 'Underground parking security monitoring',
-          location: 'Building A - Basement Level',
-          latitude: -1.2920,
-          longitude: 36.8218,
-          status: 'active',
-          assignedGuards: ['G002'],
-          assignedPatrols: 2,
-          completedPatrols: 1,
-          completionRate: 50,
-          lastPatrol: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-          patrolFrequency: 300,
-          incidentCount: 0
-        },
-        {
-          id: 'CP005',
-          name: 'Emergency Exit West',
-          description: 'Western emergency exit monitoring',
-          location: 'Building C - West Side',
-          latitude: -1.2919,
-          longitude: 36.8221,
-          status: 'maintenance',
-          assignedGuards: ['G003', 'G004'],
-          assignedPatrols: 2,
-          completedPatrols: 1,
-          completionRate: 50,
-          lastPatrol: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-          patrolFrequency: 360,
-          incidentCount: 0
-        }
-      ]
-    };
-  }
-  
-  if (endpoint.includes('/api/assignments') && method === 'POST') {
-    return {
-      success: true,
-      message: 'Guard assigned to checkpoint successfully',
-      data: body
-    };
-  }
-  
-  return { success: false, error: 'Endpoint not found' };
-};
-
-const AdminDashboard = ({ userId = 'admin-001', siteName = 'Sarit Centre Site' }) => {
-  // State management
+  // Data state
+  const [adminData, setAdminData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
   
-  // Data states
-  const [patrols, setPatrols] = useState([]);
-  const [guards, setGuards] = useState([]);
-  const [checkpoints, setCheckpoints] = useState([]);
-  const [stats, setStats] = useState({});
-  
-  // UI states
-  const [selectedTimeframe, setSelectedTimeframe] = useState('today');
-  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
-  const [selectedGuard, setSelectedGuard] = useState('');
-  const [selectedCheckpoint, setSelectedCheckpoint] = useState('');
+  // Tab-specific data
+  const [tabData, setTabData] = useState({});
+  const [tabLoading, setTabLoading] = useState({});
+  const [tabError, setTabError] = useState({});
+
+  // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  
-  // Fetch all dashboard data
-  const fetchDashboardData = async (timeframe = 'today') => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const [patrolsRes, guardsRes, checkpointsRes] = await Promise.all([
-        apiCall('/api/patrol-logs'),
-        apiCall('/api/guards'),
-        apiCall('/api/checkpoints')
-      ]);
-      
-      if (patrolsRes.success) setPatrols(patrolsRes.data);
-      if (guardsRes.success) setGuards(guardsRes.data);
-      if (checkpointsRes.success) setCheckpoints(checkpointsRes.data);
-      
-      calculateStats(patrolsRes.data || [], guardsRes.data || [], checkpointsRes.data || [], timeframe);
-      
-    } catch (err) {
-      console.error('Failed to fetch dashboard data:', err);
-      setError('Failed to load dashboard data. Please try again.');
-    } finally {
-      setLoading(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  // Navigation items
+  const navigationItems = [
+    { id: 'guards', label: 'Manage Guards', icon: Users },
+    { id: 'shifts', label: 'Manage Shifts', icon: Clock },
+    { id: 'checkpoints', label: 'Manage Checkpoints', icon: MapPin },
+    { id: 'attendance', label: 'Attendance History', icon: Calendar },
+    { id: 'patrols', label: 'Patrol Logs', icon: Activity },
+    { id: 'reports', label: 'Reports', icon: FileText }
+  ];
+
+  // API utility function
+  const makeApiCall = useCallback(async (endpoint, options = {}) => {
+    if (!token) {
+      throw new Error('Authentication token is required');
     }
-  };
-  
-  // Calculate comprehensive dashboard statistics
-  const calculateStats = (patrolData, guardData, checkpointData, timeframe) => {
-    const now = new Date();
-    let startDate;
-    
-    switch (timeframe) {
-      case 'today':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'month':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(0);
-    }
-    
-    const filteredPatrols = patrolData.filter(patrol => 
-      new Date(patrol.startTime) >= startDate
-    );
-    
-    const totalPatrols = filteredPatrols.length;
-    const completedPatrols = filteredPatrols.filter(p => p.status === 'completed').length;
-    const activePatrols = filteredPatrols.filter(p => p.status === 'active').length;
-    const overduePatrols = filteredPatrols.filter(p => p.status === 'overdue').length;
-    const pendingPatrols = filteredPatrols.filter(p => p.status === 'pending').length;
-    
-    const guardsOnDuty = guardData.filter(g => g.onDuty && g.status === 'active').length;
-    const totalGuards = guardData.filter(g => g.status === 'active').length;
-    const activeCheckpoints = checkpointData.filter(c => c.status === 'active').length;
-    const totalCheckpoints = checkpointData.length;
-    
-    const totalIncidents = filteredPatrols.reduce((sum, p) => sum + (p.incidentsReported || 0), 0);
-    const totalAssignedPatrols = checkpointData.reduce((sum, c) => sum + (c.assignedPatrols || 0), 0);
-    const totalCompletedPatrols = checkpointData.reduce((sum, c) => sum + (c.completedPatrols || 0), 0);
-    
-    setStats({
-      totalPatrols,
-      completedPatrols,
-      activePatrols,
-      overduePatrols,
-      pendingPatrols,
-      completionRate: totalPatrols > 0 ? Math.round((completedPatrols / totalPatrols) * 100) : 0,
-      guardsOnDuty,
-      totalGuards,
-      activeCheckpoints,
-      totalCheckpoints,
-      checkpointCoverage: totalCheckpoints > 0 ? Math.round((activeCheckpoints / totalCheckpoints) * 100) : 0,
-      totalIncidents,
-      totalAssignedPatrols,
-      totalCompletedPatrols,
-      overallCompletionRate: totalAssignedPatrols > 0 ? Math.round((totalCompletedPatrols / totalAssignedPatrols) * 100) : 0
+
+    const defaultHeaders = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+
+    const response = await fetch(`${process.env.REACT_APP_API_URL || ''}${endpoint}`, {
+      headers: { ...defaultHeaders, ...options.headers },
+      ...options
     });
-  };
-  
-  // Handle guard-checkpoint assignment
-  const handleAssignCheckpoint = async () => {
-    if (!selectedGuard || !selectedCheckpoint) {
-      alert('Please select both a guard and a checkpoint');
-      return;
-    }
-    
-    try {
-      const response = await apiCall('/api/assignments', {
-        method: 'POST',
-        body: {
-          guardId: selectedGuard,
-          checkpointId: selectedCheckpoint,
-          assignedBy: userId,
-          assignedAt: new Date().toISOString()
-        }
-      });
-      
-      if (response.success) {
-        alert('Guard assigned to checkpoint successfully!');
-        setAssignmentDialogOpen(false);
-        setSelectedGuard('');
-        setSelectedCheckpoint('');
-        fetchDashboardData(selectedTimeframe);
-      } else {
-        alert('Failed to assign checkpoint. Please try again.');
+
+    if (!response.ok) {
+      let errorData = {};
+      try {
+        errorData = await response.json();
+      } catch (jsonError) {
+        console.error('Failed to parse error response as JSON:', jsonError);
+        errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
       }
-    } catch (error) {
-      console.error('Assignment failed:', error);
-      alert('Assignment failed. Please try again.');
+      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response.json();
+  }, [token]);
+
+  // Mock data for development - remove when backend is ready
+  const getMockData = (tabId) => {
+    switch (tabId) {
+      case 'guards':
+        return [
+          { id: 1, username: 'john_doe', name: 'John Doe', email: 'john@example.com', role: 'guard', status: 'active', phone: '+254712345678', hire_date: '2025-01-15' },
+          { id: 2, username: 'jane_smith', name: 'Jane Smith', email: 'jane@example.com', role: 'guard', status: 'active', phone: '+254712345679', hire_date: '2025-02-01' },
+          { id: 3, username: 'mike_wilson', name: 'Mike Wilson', email: 'mike@example.com', role: 'guard', status: 'inactive', phone: '+254712345680', hire_date: '2024-12-10' },
+          { id: 4, username: 'sarah_jones', name: 'Sarah Jones', email: 'sarah@example.com', role: 'supervisor', status: 'active', phone: '+254712345681', hire_date: '2024-11-20' }
+        ];
+      case 'shifts':
+        return [
+          { id: 1, name: 'Morning Shift', start_time: '06:00', end_time: '14:00', assigned_guard: 'John Doe', guard_id: 1, status: 'active', description: 'Standard morning security shift' },
+          { id: 2, name: 'Evening Shift', start_time: '14:00', end_time: '22:00', assigned_guard: 'Jane Smith', guard_id: 2, status: 'active', description: 'Evening security coverage' },
+          { id: 3, name: 'Night Shift', start_time: '22:00', end_time: '06:00', assigned_guard: 'Mike Wilson', guard_id: 3, status: 'inactive', description: 'Overnight security patrol' },
+          { id: 4, name: 'Weekend Shift', start_time: '08:00', end_time: '20:00', assigned_guard: 'Sarah Jones', guard_id: 4, status: 'active', description: 'Weekend coverage' }
+        ];
+      case 'checkpoints':
+        return [
+          { id: 1, name: 'Main Entrance', location: 'Building A - Lobby', description: 'Primary security checkpoint', status: 'active', qr_code: 'CP001', created_at: '2025-01-01' },
+          { id: 2, name: 'Parking Garage', location: 'Underground Level B1', description: 'Vehicle access control', status: 'active', qr_code: 'CP002', created_at: '2025-01-01' },
+          { id: 3, name: 'Emergency Exit', location: 'Building C - Rear', description: 'Emergency route monitoring', status: 'inactive', qr_code: 'CP003', created_at: '2025-01-01' },
+          { id: 4, name: 'Executive Floor', location: 'Building A - 15th Floor', description: 'VIP area security', status: 'active', qr_code: 'CP004', created_at: '2025-01-01' }
+        ];
+      case 'attendance':
+        return [
+          { id: 1, staff_name: 'John Doe', guard_id: 1, date: '2025-09-12', check_in: '06:00', check_out: '14:00', status: 'present', hours_worked: 8 },
+          { id: 2, staff_name: 'Jane Smith', guard_id: 2, date: '2025-09-12', check_in: '14:05', check_out: '22:00', status: 'late', hours_worked: 7.9 },
+          { id: 3, staff_name: 'Mike Wilson', guard_id: 3, date: '2025-09-12', check_in: null, check_out: null, status: 'absent', hours_worked: 0 },
+          { id: 4, staff_name: 'Sarah Jones', guard_id: 4, date: '2025-09-11', check_in: '08:00', check_out: '20:00', status: 'present', hours_worked: 12 }
+        ];
+      case 'patrols':
+        return [
+          { id: 1, guard_name: 'John Doe', guard_id: 1, checkpoint_name: 'Main Entrance', checkpoint_id: 1, timestamp: '2025-09-12 07:30', notes: 'All clear, no incidents', status: 'completed', duration: 15 },
+          { id: 2, guard_name: 'Jane Smith', guard_id: 2, checkpoint_name: 'Parking Garage', checkpoint_id: 2, timestamp: '2025-09-12 15:15', notes: 'Minor lighting issue reported', status: 'completed', duration: 10 },
+          { id: 3, guard_name: 'John Doe', guard_id: 1, checkpoint_name: 'Executive Floor', checkpoint_id: 4, timestamp: '2025-09-12 10:00', notes: 'VIP meeting in progress', status: 'completed', duration: 5 },
+          { id: 4, guard_name: 'Jane Smith', guard_id: 2, checkpoint_name: 'Emergency Exit', checkpoint_id: 3, timestamp: '2025-09-12 18:45', notes: 'Door alarm test completed', status: 'pending', duration: null }
+        ];
+      case 'reports':
+        return [
+          { id: 1, title: 'Daily Security Summary', type: 'daily', created_by: 'Admin User', created_at: '2025-09-12 08:00', status: 'completed', file_url: '/reports/daily_summary_2025-09-12.pdf' },
+          { id: 2, title: 'Weekly Attendance Report', type: 'attendance', created_by: 'Admin User', created_at: '2025-09-09 09:00', status: 'completed', file_url: '/reports/weekly_attendance_2025-W37.pdf' },
+          { id: 3, title: 'Incident Analysis Q3', type: 'incident', created_by: 'Manager', created_at: '2025-09-10 14:30', status: 'pending', file_url: null },
+          { id: 4, title: 'Monthly Patrol Coverage', type: 'patrol', created_by: 'Admin User', created_at: '2025-09-01 10:00', status: 'completed', file_url: '/reports/monthly_patrol_2025-08.pdf' }
+        ];
+      default:
+        return [];
     }
   };
-  
-  // Refresh dashboard data
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchDashboardData(selectedTimeframe);
-    setRefreshing(false);
-  };
-  
-  // Generate comprehensive report in your specified format
-  const generateReport = (format) => {
-    const reportDate = new Date().toLocaleDateString();
-    const reportTime = new Date().toLocaleTimeString();
-    
-    let report = `${siteName}
-Daily Patrol Report
-Generated: ${reportDate} ${reportTime}
 
-=== PATROL SUMMARY ===
-Checkpoint Name              Completed  Assigned  Completion %
-`;
+  // Fetch data for specific tab
+  const fetchTabData = useCallback(async (tabId) => {
+    console.log('Fetching data for tab:', tabId);
+    setTabLoading(prev => ({ ...prev, [tabId]: true }));
+    setTabError(prev => ({ ...prev, [tabId]: null }));
 
-    // Add checkpoint summary
-    checkpoints.forEach(cp => {
-      const completed = cp.completedPatrols || 0;
-      const assigned = cp.assignedPatrols || 0;
-      const completionRate = assigned > 0 ? Math.round((completed / assigned) * 100) : 0;
+    try {
+      // Configuration: Set to false when your backend APIs are ready
+      const useMockData = true;
       
-      report += `${cp.name.padEnd(28)} ${completed.toString().padStart(9)}  ${assigned.toString().padStart(8)}      ${completionRate.toString().padStart(3)}%\n`;
-    });
-    
-    report += `${'Grand Total'.padEnd(28)} ${stats.totalCompletedPatrols.toString().padStart(9)}  ${stats.totalAssignedPatrols.toString().padStart(8)}      ${stats.overallCompletionRate.toString().padStart(3)}%
-
-=== OCCURRENCES / INCIDENTS ===
-Checkpoint Name              | Incident Count | Notes
-`;
-
-    // Add incidents by checkpoint
-    checkpoints.forEach(cp => {
-      const incidents = cp.incidentCount || 0;
-      const notes = incidents > 0 ? 'Security incidents reported' : 'None';
-      report += `${cp.name.padEnd(28)} | ${incidents.toString().padStart(14)} | ${notes}\n`;
-    });
-
-    report += `
-=== GUARD STATISTICS ===
-Name              Badge        Total  Completed  Active  Overdue  Completion %
-`;
-
-    // Add guard statistics
-    guards.filter(g => g.status === 'active').forEach(guard => {
-      const total = guard.totalPatrols || 0;
-      const completed = guard.completedPatrols || 0;
-      const active = guard.activePatrols || 0;
-      const overdue = guard.overduePatrols || 0;
-      const rate = guard.completionRate || 0;
-      
-      report += `${guard.name.padEnd(17)} ${guard.badge.padEnd(12)} ${total.toString().padStart(5)}  ${completed.toString().padStart(9)}  ${active.toString().padStart(6)}  ${overdue.toString().padStart(7)}        ${rate.toString().padStart(3)}%\n`;
-    });
-
-    report += `
-=== DETAILED PATROL LOGS ===
-Time                 Guard           Checkpoint               Status       Notes
-`;
-
-    // Add detailed patrol logs
-    patrols.slice(0, 20).forEach(patrol => {
-      const time = new Date(patrol.startTime).toLocaleString();
-      const status = patrol.status.toUpperCase();
-      const notes = patrol.notes || 'No notes';
-      
-      report += `${time.padEnd(20)} ${patrol.guardName.padEnd(15)} ${patrol.checkpointName.padEnd(24)} ${status.padEnd(12)} ${notes}\n`;
-    });
-
-    report += `
-=== SYSTEM METRICS ===
-Total Guards: ${stats.totalGuards}
-Guards on Duty: ${stats.guardsOnDuty}
-Active Checkpoints: ${stats.activeCheckpoints}/${stats.totalCheckpoints}
-Total Incidents: ${stats.totalIncidents}
-System Uptime: 99.9%
-Report Generated: ${new Date().toISOString()}
-
-Report End - Generated by Security System Admin Dashboard v2.0`;
-
-    return report;
-  };
-  
-  // Export functions for different formats
-  const handleExport = (format) => {
-    const report = generateReport(format);
-    const timestamp = new Date().toISOString().split('T')[0];
-    
-    switch (format) {
-      case 'txt':
-        const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `${siteName.replace(/\s+/g, '_')}_Patrol_Report_${timestamp}.txt`;
-        link.click();
-        break;
+      if (useMockData) {
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
         
-      case 'csv':
-        // Generate CSV format
-        let csvContent = "Checkpoint Name,Completed,Assigned,Completion Rate,Incidents\n";
-        checkpoints.forEach(cp => {
-          const completed = cp.completedPatrols || 0;
-          const assigned = cp.assignedPatrols || 0;
-          const rate = assigned > 0 ? Math.round((completed / assigned) * 100) : 0;
-          const incidents = cp.incidentCount || 0;
-          csvContent += `"${cp.name}",${completed},${assigned},${rate}%,${incidents}\n`;
-        });
-        
-        const csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
-        const csvLink = document.createElement('a');
-        csvLink.href = URL.createObjectURL(csvBlob);
-        csvLink.download = `${siteName.replace(/\s+/g, '_')}_Patrol_Report_${timestamp}.csv`;
-        csvLink.click();
-        break;
-        
-      case 'json':
-        // Generate JSON format
-        const jsonData = {
-          siteName,
-          reportDate: new Date().toISOString(),
-          timeframe: selectedTimeframe,
-          summary: {
-            totalPatrols: stats.totalPatrols,
-            completedPatrols: stats.completedPatrols,
-            overallCompletionRate: stats.overallCompletionRate,
-            totalIncidents: stats.totalIncidents,
-            guardsOnDuty: stats.guardsOnDuty,
-            totalGuards: stats.totalGuards
-          },
-          checkpoints: checkpoints.map(cp => ({
-            name: cp.name,
-            completed: cp.completedPatrols || 0,
-            assigned: cp.assignedPatrols || 0,
-            completionRate: cp.completionRate || 0,
-            incidents: cp.incidentCount || 0
-          })),
-          guards: guards.filter(g => g.status === 'active').map(g => ({
-            name: g.name,
-            badge: g.badge,
-            totalPatrols: g.totalPatrols || 0,
-            completedPatrols: g.completedPatrols || 0,
-            completionRate: g.completionRate || 0
-          })),
-          patrols: patrols.map(p => ({
-            time: p.startTime,
-            guard: p.guardName,
-            checkpoint: p.checkpointName,
-            status: p.status,
-            notes: p.notes
-          }))
-        };
-        
-        const jsonBlob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
-        const jsonLink = document.createElement('a');
-        jsonLink.href = URL.createObjectURL(jsonBlob);
-        jsonLink.download = `${siteName.replace(/\s+/g, '_')}_Patrol_Report_${timestamp}.json`;
-        jsonLink.click();
-        break;
+        const mockData = getMockData(tabId);
+        console.log('Mock data for', tabId, ':', mockData);
+        setTabData(prev => ({ ...prev, [tabId]: mockData }));
+        return;
+      }
+
+      // Real API calls - uncomment and modify when backend is ready
+      let endpoint = '';
+      let params = '';
+
+      switch (tabId) {
+        case 'guards':
+          endpoint = '/api/admin/guards';
+          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&search=${searchTerm}`;
+          break;
+        case 'shifts':
+          endpoint = '/api/admin/shifts';
+          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&search=${searchTerm}`;
+          break;
+        case 'checkpoints':
+          endpoint = '/api/admin/checkpoints';
+          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&search=${searchTerm}`;
+          break;
+        case 'attendance':
+          endpoint = '/api/admin/attendance';
+          params = `?date_from=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&date_to=${new Date().toISOString().split('T')[0]}`;
+          break;
+        case 'patrols':
+          endpoint = '/api/admin/patrols';
+          params = `?date_from=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&date_to=${new Date().toISOString().split('T')[0]}`;
+          break;
+        case 'reports':
+          endpoint = '/api/admin/reports';
+          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&type=${searchTerm}`;
+          break;
+        default:
+          console.log('Unknown tab:', tabId);
+          return;
+      }
+
+      console.log('API endpoint:', `${endpoint}${params}`);
+      const response = await makeApiCall(`${endpoint}${params}`);
+      console.log('API response for', tabId, ':', response);
+      setTabData(prev => ({ ...prev, [tabId]: response.data || response }));
+    } catch (err) {
+      console.error(`Failed to fetch ${tabId} data:`, err);
+      setTabError(prev => ({ ...prev, [tabId]: err.message }));
+    } finally {
+      setTabLoading(prev => ({ ...prev, [tabId]: false }));
     }
-    
-    setExportDialogOpen(false);
-    alert(`${format.toUpperCase()} report exported successfully!`);
+  }, [makeApiCall, filterStatus, searchTerm]);
+
+  // CRUD operations
+  const handleCreate = async (tabId, data) => {
+    try {
+      const endpoint = `/api/admin/${tabId}`;
+      const response = await makeApiCall(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+      console.log('Created successfully:', response);
+      // Refresh data
+      fetchTabData(tabId);
+      return response;
+    } catch (err) {
+      console.error('Create failed:', err);
+      throw err;
+    }
   };
-  
-  // Filter functions
-  const getFilteredPatrols = () => {
-    let filtered = patrols;
+
+  const handleUpdate = async (tabId, id, data) => {
+    try {
+      const endpoint = `/api/admin/${tabId}/${id}`;
+      const response = await makeApiCall(endpoint, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+      console.log('Updated successfully:', response);
+      // Refresh data
+      fetchTabData(tabId);
+      return response;
+    } catch (err) {
+      console.error('Update failed:', err);
+      throw err;
+    }
+  };
+
+  const handleDelete = async (tabId, id) => {
+    try {
+      const endpoint = `/api/admin/${tabId}/${id}`;
+      await makeApiCall(endpoint, { method: 'DELETE' });
+      console.log('Deleted successfully');
+      // Refresh data
+      fetchTabData(tabId);
+    } catch (err) {
+      console.error('Delete failed:', err);
+      throw err;
+    }
+  };
+
+  // Fetch admin profile data
+  const fetchAdminData = useCallback(async () => {
+    try {
+      // Uncomment when backend is ready
+      // const response = await makeApiCall('/api/auth/me');
+      // const userData = response.data || response;
+      // setAdminData(userData);
+      
+      // Mock data for now
+      setAdminData({
+        id: 1,
+        name: 'Admin User',
+        username: 'admin',
+        email: 'admin@security.com',
+        role: 'admin',
+        profile_image: null
+      });
+    } catch (err) {
+      console.error('Failed to fetch admin data:', err);
+      setError('Failed to load admin profile data');
+    }
+  }, [makeApiCall]);
+
+  // Initialize dashboard data
+  useEffect(() => {
+    const initializeDashboard = async () => {
+      const currentToken = getAuthToken();
+      if (!currentToken) {
+        setError('Authentication token is required');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        await fetchAdminData();
+      } catch (err) {
+        console.error('Dashboard initialization error:', err);
+        setError('Failed to initialize admin dashboard');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeDashboard();
+  }, [fetchAdminData]);
+
+  // Fetch data when tab changes
+  useEffect(() => {
+    if (!loading && !error && activeTab) {
+      fetchTabData(activeTab);
+    }
+  }, [activeTab, loading, error, fetchTabData]);
+
+  // Handle tab change
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setSidebarOpen(false); // Close mobile sidebar
+    setSearchTerm(''); // Reset search
+    setFilterStatus('all'); // Reset filter
+  };
+
+  // Handle refresh
+  const handleRefresh = () => {
+    if (activeTab) {
+      fetchTabData(activeTab);
+    }
+  };
+
+  // Filter data based on search and status
+  const filterData = (data) => {
+    if (!data) return [];
     
+    let filtered = data;
+
+    // Apply search filter
     if (searchTerm) {
-      filtered = filtered.filter(p => 
-        p.guardName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.checkpointName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.notes?.toLowerCase().includes(searchTerm.toLowerCase())
+      filtered = filtered.filter(item => 
+        Object.values(item).some(value => 
+          value && value.toString().toLowerCase().includes(searchTerm.toLowerCase())
+        )
       );
     }
-    
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(p => p.status === statusFilter);
+
+    // Apply status filter
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(item => item.status === filterStatus);
     }
-    
+
     return filtered;
   };
-  
-  // Initialize data on component mount
-  useEffect(() => {
-    fetchDashboardData(selectedTimeframe);
-  }, [selectedTimeframe]);
-  
-  if (loading) {
+
+  // Enhanced Data table component
+  const DataTable = ({ data, columns, title, onAdd, onEdit, onDelete, onView, showSearch = true, showFilter = true }) => {
+    const filteredData = filterData(data);
+
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-amber-600" />
-          <p className="text-gray-600">Loading dashboard data...</p>
-          <p className="text-sm text-gray-500 mt-2">Connecting to security system...</p>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+          <div className="flex gap-2">
+            {onAdd && (
+              <Button 
+                onClick={onAdd}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add New
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        
+        {/* Search and Filter Controls */}
+        {(showSearch || showFilter) && (
+          <div className="px-6 pb-4">
+            <div className="flex flex-col sm:flex-row gap-4">
+              {showSearch && (
+                <div className="flex-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                    <input
+                      type="text"
+                      placeholder="Search..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                </div>
+              )}
+              
+              {showFilter && (
+                <div className="flex gap-2">
+                  <div className="relative">
+                    <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="pl-10 pr-8 py-2 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none bg-white"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="pending">Pending</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <CardContent>
+          {filteredData && filteredData.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    {columns.map((col) => (
+                      <th key={col.key} className="text-left py-3 px-4 font-medium text-gray-700">
+                        {col.label}
+                      </th>
+                    ))}
+                    <th className="text-right py-3 px-4 font-medium text-gray-700">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, index) => (
+                    <tr key={item.id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                      {columns.map((col) => (
+                        <td key={col.key} className="py-3 px-4 text-gray-600">
+                          {col.render ? col.render(item[col.key], item) : item[col.key] || '-'}
+                        </td>
+                      ))}
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex gap-1 justify-end">
+                          {onView && (
+                            <Button variant="ghost" size="sm" onClick={() => onView(item)} title="View">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {onEdit && (
+                            <Button variant="ghost" size="sm" onClick={() => onEdit(item)} title="Edit">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {onDelete && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => {
+                                if (confirm('Are you sure you want to delete this item?')) {
+                                  onDelete(item);
+                                }
+                              }} 
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-600">
+                {data && data.length > 0 ? 'No items match your search criteria' : 'No data available'}
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Tab components with enhanced functionality
+  const GuardsTab = () => {
+    const data = tabData.guards || [];
+    const columns = [
+      { key: 'username', label: 'Username' },
+      { key: 'name', label: 'Full Name' },
+      { key: 'email', label: 'Email' },
+      { key: 'phone', label: 'Phone' },
+      { 
+        key: 'role', 
+        label: 'Role',
+        render: (value) => {
+          const roleColors = {
+            admin: 'bg-red-100 text-red-800',
+            supervisor: 'bg-purple-100 text-purple-800',
+            guard: 'bg-blue-100 text-blue-800'
+          };
+          return (
+            <Badge className={roleColors[value?.toLowerCase()] || 'bg-gray-100 text-gray-800'}>
+              {value?.toUpperCase()}
+            </Badge>
+          );
+        }
+      },
+      { 
+        key: 'status', 
+        label: 'Status',
+        render: (value) => (
+          <Badge className={value === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+            {value?.toUpperCase() || 'INACTIVE'}
+          </Badge>
+        )
+      },
+      { key: 'hire_date', label: 'Hire Date' }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Manage Guards</h2>
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh}
+            disabled={tabLoading.guards}
+            className="border-amber-200 text-amber-700 hover:bg-amber-50"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.guards ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
+        
+        {tabError.guards && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{tabError.guards}</AlertDescription>
+          </Alert>
+        )}
+        
+        {tabLoading.guards ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+            <span className="text-lg text-gray-600">Loading guards...</span>
+          </div>
+        ) : (
+          <DataTable 
+            data={data}
+            columns={columns}
+            title="Guards Management"
+            onAdd={() => console.log('Add guard - would open modal/form')}
+            onEdit={(guard) => console.log('Edit guard:', guard)}
+            onDelete={(guard) => console.log('Delete guard:', guard)}
+            onView={(guard) => console.log('View guard details:', guard)}
+          />
+        )}
       </div>
     );
-  }
-  
-  if (error) {
+  };
+
+  const ShiftsTab = () => {
+    const data = tabData.shifts || [];
+    const columns = [
+      { key: 'name', label: 'Shift Name' },
+      { key: 'start_time', label: 'Start Time' },
+      { key: 'end_time', label: 'End Time' },
+      { key: 'assigned_guard', label: 'Assigned Guard' },
+      { key: 'description', label: 'Description' },
+      { 
+        key: 'status', 
+        label: 'Status',
+        render: (value) => (
+          <Badge className={value === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+            {value?.toUpperCase() || 'INACTIVE'}
+          </Badge>
+        )
+      }
+    ];
+
     return (
-      <div className="p-6">
-        <Alert variant="destructive">
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Manage Shifts</h2>
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh}
+            disabled={tabLoading.shifts}
+            className="border-amber-200 text-amber-700 hover:bg-amber-50"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.shifts ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+        
+        {tabError.shifts && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{tabError.shifts}</AlertDescription>
+          </Alert>
+        )}
+        
+        {tabLoading.shifts ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+            <span className="text-lg text-gray-600">Loading shifts...</span>
+          </div>
+        ) : (
+          <DataTable 
+            data={data}
+            columns={columns}
+            title="Shifts Management"
+            onAdd={() => console.log('Add shift - would open modal/form')}
+            onEdit={(shift) => console.log('Edit shift:', shift)}
+            onDelete={(shift) => console.log('Delete shift:', shift)}
+            onView={(shift) => console.log('View shift details:', shift)}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const CheckpointsTab = () => {
+    const data = tabData.checkpoints || [];
+    const columns = [
+      { key: 'name', label: 'Checkpoint Name' },
+      { key: 'location', label: 'Location' },
+      { key: 'qr_code', label: 'QR Code' },
+      { key: 'description', label: 'Description' },
+      { 
+        key: 'status', 
+        label: 'Status',
+        render: (value) => (
+          <Badge className={value === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+            {value?.toUpperCase() || 'INACTIVE'}
+          </Badge>
+        )
+      },
+      { key: 'created_at', label: 'Created' }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Manage Checkpoints</h2>
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh}
+            disabled={tabLoading.checkpoints}
+            className="border-amber-200 text-amber-700 hover:bg-amber-50"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.checkpoints ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+        
+        {tabError.checkpoints && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{tabError.checkpoints}</AlertDescription>
+          </Alert>
+        )}
+        
+        {tabLoading.checkpoints ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+            <span className="text-lg text-gray-600">Loading checkpoints...</span>
+          </div>
+        ) : (
+          <DataTable 
+            data={data}
+            columns={columns}
+            title="Checkpoints Management"
+            onAdd={() => console.log('Add checkpoint - would open modal/form')}
+            onEdit={(checkpoint) => console.log('Edit checkpoint:', checkpoint)}
+            onDelete={(checkpoint) => console.log('Delete checkpoint:', checkpoint)}
+            onView={(checkpoint) => console.log('View checkpoint details:', checkpoint)}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const AttendanceTab = () => {
+    const data = tabData.attendance || [];
+    const columns = [
+      { key: 'staff_name', label: 'Staff Name' },
+      { key: 'date', label: 'Date' },
+      { key: 'check_in', label: 'Check In' },
+      { key: 'check_out', label: 'Check Out' },
+      { 
+        key: 'hours_worked', 
+        label: 'Hours',
+        render: (value) => value ? `${value}h` : '-'
+      },
+      { 
+        key: 'status', 
+        label: 'Status',
+        render: (value) => {
+          const statusColors = {
+            present: 'bg-green-100 text-green-800',
+            absent: 'bg-red-100 text-red-800',
+            late: 'bg-yellow-100 text-yellow-800'
+          };
+          return (
+            <Badge className={statusColors[value?.toLowerCase()] || 'bg-gray-100 text-gray-800'}>
+              {value?.toUpperCase() || 'UNKNOWN'}
+            </Badge>
+          );
+        }
+      }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Attendance History</h2>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh}
+              disabled={tabLoading.attendance}
+              className="border-amber-200 text-amber-700 hover:bg-amber-50"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.attendance ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => console.log('Export attendance data')}
+              className="border-green-200 text-green-700 hover:bg-green-50"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </div>
+        </div>
+        
+        {tabError.attendance && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{tabError.attendance}</AlertDescription>
+          </Alert>
+        )}
+        
+        {tabLoading.attendance ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+            <span className="text-lg text-gray-600">Loading attendance...</span>
+          </div>
+        ) : (
+          <DataTable 
+            data={data}
+            columns={columns}
+            title="Attendance Records"
+            onView={(record) => console.log('View attendance details:', record)}
+            showFilter={true}
+            showSearch={true}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const PatrolsTab = () => {
+    const data = tabData.patrols || [];
+    const columns = [
+      { key: 'guard_name', label: 'Guard Name' },
+      { key: 'checkpoint_name', label: 'Checkpoint' },
+      { 
+        key: 'timestamp', 
+        label: 'Timestamp',
+        render: (value) => new Date(value).toLocaleString()
+      },
+      { 
+        key: 'duration', 
+        label: 'Duration',
+        render: (value) => value ? `${value} min` : 'Pending'
+      },
+      { key: 'notes', label: 'Notes' },
+      { 
+        key: 'status', 
+        label: 'Status',
+        render: (value) => (
+          <Badge className={value === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+            {value?.toUpperCase() || 'PENDING'}
+          </Badge>
+        )
+      }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Patrol Logs</h2>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh}
+              disabled={tabLoading.patrols}
+              className="border-amber-200 text-amber-700 hover:bg-amber-50"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.patrols ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => console.log('Export patrol logs')}
+              className="border-green-200 text-green-700 hover:bg-green-50"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </div>
+        </div>
+        
+        {tabError.patrols && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{tabError.patrols}</AlertDescription>
+          </Alert>
+        )}
+        
+        {tabLoading.patrols ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+            <span className="text-lg text-gray-600">Loading patrol logs...</span>
+          </div>
+        ) : (
+          <DataTable 
+            data={data}
+            columns={columns}
+            title="Patrol Logs"
+            onView={(log) => console.log('View patrol log details:', log)}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const ReportsTab = () => {
+    const data = tabData.reports || [];
+    const columns = [
+      { key: 'title', label: 'Report Title' },
+      { 
+        key: 'type', 
+        label: 'Type',
+        render: (value) => {
+          const typeColors = {
+            daily: 'bg-blue-100 text-blue-800',
+            weekly: 'bg-green-100 text-green-800',
+            monthly: 'bg-purple-100 text-purple-800',
+            attendance: 'bg-orange-100 text-orange-800',
+            patrol: 'bg-indigo-100 text-indigo-800',
+            incident: 'bg-red-100 text-red-800'
+          };
+          return (
+            <Badge className={typeColors[value?.toLowerCase()] || 'bg-gray-100 text-gray-800'}>
+              {value?.toUpperCase()}
+            </Badge>
+          );
+        }
+      },
+      { key: 'created_by', label: 'Created By' },
+      { 
+        key: 'created_at', 
+        label: 'Created At',
+        render: (value) => new Date(value).toLocaleDateString()
+      },
+      { 
+        key: 'status', 
+        label: 'Status',
+        render: (value) => (
+          <Badge className={value === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+            {value?.toUpperCase() || 'PENDING'}
+          </Badge>
+        )
+      },
+      { 
+        key: 'file_url', 
+        label: 'Download',
+        render: (value, item) => value ? (
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => console.log('Download report:', item.title)}
+            className="text-blue-600 hover:text-blue-700"
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+        ) : (
+          <span className="text-gray-400">-</span>
+        )
+      }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Reports</h2>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh}
+              disabled={tabLoading.reports}
+              className="border-amber-200 text-amber-700 hover:bg-amber-50"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.reports ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button 
+              onClick={() => console.log('Generate new report')}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Generate Report
+            </Button>
+          </div>
+        </div>
+        
+        {tabError.reports && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{tabError.reports}</AlertDescription>
+          </Alert>
+        )}
+        
+        {tabLoading.reports ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+            <span className="text-lg text-gray-600">Loading reports...</span>
+          </div>
+        ) : (
+          <DataTable 
+            data={data}
+            columns={columns}
+            title="Reports Management"
+            onAdd={() => console.log('Generate new report')}
+            onView={(report) => console.log('View report:', report)}
+            onDelete={(report) => console.log('Delete report:', report)}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // Render active tab content
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case 'guards':
+        return <GuardsTab />;
+      case 'shifts':
+        return <ShiftsTab />;
+      case 'checkpoints':
+        return <CheckpointsTab />;
+      case 'attendance':
+        return <AttendanceTab />;
+      case 'patrols':
+        return <PatrolsTab />;
+      case 'reports':
+        return <ReportsTab />;
+      default:
+        return <GuardsTab />;
+    }
+  };
+
+  if (!token && !localStorage.getItem('authToken') && !localStorage.getItem('token') && !sessionStorage.getItem('authToken') && !sessionStorage.getItem('token')) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Alert variant="destructive" className="max-w-md">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {error}
-            <Button variant="outline" size="sm" className="ml-4" onClick={handleRefresh}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Retry
-            </Button>
+            Authentication token is required to access the admin dashboard.
+            <br />
+            <small className="text-xs mt-2 block">
+              Debug Info: 
+              <br />• Token prop: {token ? '✓' : '✗'}
+              <br />• localStorage token: {localStorage.getItem('authToken') || localStorage.getItem('token') ? '✓' : '✗'}
+              <br />• sessionStorage token: {sessionStorage.getItem('authToken') || sessionStorage.getItem('token') ? '✓' : '✗'}
+            </small>
           </AlertDescription>
         </Alert>
       </div>
@@ -697,851 +976,154 @@ Report End - Generated by Security System Admin Dashboard v2.0`;
   }
 
   return (
-    <div className="p-6 space-y-6 bg-gradient-to-br from-gray-50 to-amber-50 min-h-screen">
-      {/* Header Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-amber-200 p-6">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <div className="p-2 bg-amber-100 rounded-lg">
-                <Shield className="h-8 w-8 text-amber-600" />
-              </div>
-              {siteName} - Admin Dashboard
-            </h1>
-            <p className="text-gray-600 mt-2 flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Real-time monitoring and management • Last updated: {new Date().toLocaleTimeString()}
-            </p>
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+        fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0`}>
+        
+        {/* Sidebar Header */}
+        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <Shield className="h-8 w-8 text-amber-600" />
+            <h1 className="text-lg font-bold text-gray-900">Security Admin</h1>
           </div>
-          
-          {/* Header Controls */}
-          <div className="flex flex-wrap gap-3">
-            {/* Timeframe Selector */}
-            <div className="flex bg-amber-50 border border-amber-200 rounded-lg p-1">
-              {['today', 'week', 'month'].map((timeframe) => (
-                <Button
-                  key={timeframe}
-                  variant={selectedTimeframe === timeframe ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setSelectedTimeframe(timeframe)}
-                  className={`capitalize ${selectedTimeframe === timeframe ? 'bg-amber-600 text-white' : 'text-amber-700 hover:bg-amber-100'}`}
-                >
-                  {timeframe === 'today' ? 'Today' : timeframe === 'week' ? 'This Week' : 'This Month'}
-                </Button>
-              ))}
-            </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 px-4 py-6 space-y-2">
+          {navigationItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
             
-            {/* Action Buttons */}
-            <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="border-amber-200 text-amber-700 hover:bg-amber-50">
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Assign Guard
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Assign Guard to Checkpoint</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="guard-select">Select Guard</Label>
-                    <Select value={selectedGuard} onValueChange={setSelectedGuard}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a guard" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {guards.filter(g => g.status === 'active').map((guard) => (
-                          <SelectItem key={guard.id} value={guard.id}>
-                            {guard.name} ({guard.badge}) - {guard.onDuty ? 'On Duty' : 'Off Duty'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="checkpoint-select">Select Checkpoint</Label>
-                    <Select value={selectedCheckpoint} onValueChange={setSelectedCheckpoint}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a checkpoint" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {checkpoints.filter(c => c.status === 'active').map((checkpoint) => (
-                          <SelectItem key={checkpoint.id} value={checkpoint.id}>
-                            {checkpoint.name} - {checkpoint.location}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="flex justify-end gap-3 pt-4">
-                    <Button variant="outline" onClick={() => setAssignmentDialogOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleAssignCheckpoint} className="bg-amber-600 hover:bg-amber-700">
-                      Assign
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-            
-            {/* Export Dialog */}
-            <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="border-amber-200 text-amber-700 hover:bg-amber-50">
-                  <FileDown className="h-4 w-4 mr-2" />
-                  Export Report
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Export Patrol Report</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">
-                    Choose format to export comprehensive patrol report with statistics, incidents, and guard performance data.
-                  </p>
-                  <div className="grid grid-cols-1 gap-3">
-                    <Button onClick={() => handleExport('txt')} variant="outline" className="justify-start">
-                      <FileDown className="h-4 w-4 mr-2" />
-                      Text Report (.txt) - Detailed formatted report
-                    </Button>
-                    <Button onClick={() => handleExport('csv')} variant="outline" className="justify-start">
-                      <Download className="h-4 w-4 mr-2" />
-                      CSV Export (.csv) - Spreadsheet compatible
-                    </Button>
-                    <Button onClick={() => handleExport('json')} variant="outline" className="justify-start">
-                      <BarChart3 className="h-4 w-4 mr-2" />
-                      JSON Data (.json) - API compatible format
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-            
-            <Button variant="outline" onClick={handleRefresh} disabled={refreshing} className="border-amber-200 text-amber-700 hover:bg-amber-50">
-              {refreshing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh
-            </Button>
-          </div>
+            return (
+              <Button
+                key={item.id}
+                variant={isActive ? "default" : "ghost"}
+                onClick={() => handleTabChange(item.id)}
+                className={`w-full justify-start gap-3 ${
+                  isActive 
+                    ? 'bg-amber-100 text-amber-900 hover:bg-amber-200' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Button>
+            );
+          })}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-gray-200">
+          <Button
+            variant="ghost"
+            onClick={onLogout}
+            className="w-full justify-start gap-3 text-gray-700 hover:bg-gray-100"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </Button>
         </div>
       </div>
 
-      {/* Critical Alerts Section */}
-      {stats.overduePatrols > 0 && (
-        <Alert variant="destructive" className="border-l-4 border-l-red-500 bg-red-50">
-          <AlertTriangle className="h-5 w-5" />
-          <AlertDescription className="text-red-800">
-            <strong>URGENT ATTENTION REQUIRED:</strong> {stats.overduePatrols} patrol(s) are overdue and require immediate intervention.
-            <div className="mt-2 flex gap-2">
-              <Button variant="destructive" size="sm">
-                <Phone className="h-3 w-3 mr-1" />
-                Contact Guards
+      {/* Main Content */}
+      <div className="flex-1 lg:ml-0">
+        {/* Top Header */}
+        <header className="bg-white shadow-sm border-b border-gray-200">
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden"
+              >
+                <Menu className="h-5 w-5" />
               </Button>
-              <Button variant="outline" size="sm" className="border-red-300 text-red-700 hover:bg-red-100">
-                View Details
-              </Button>
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Key Performance Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-br from-blue-50 to-blue-100">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-blue-800">Total Patrols</CardTitle>
-            <Target className="h-5 w-5 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-blue-700">{stats.totalPatrols || 0}</div>
-            <p className="text-sm text-blue-600 mt-1">
-              {stats.activePatrols || 0} active • {stats.overduePatrols || 0} overdue • {stats.pendingPatrols || 0} pending
-            </p>
-            <Progress value={stats.completionRate || 0} className="h-2 mt-2 bg-blue-200" />
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-green-500 bg-gradient-to-br from-green-50 to-green-100">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-green-800">Guards Status</CardTitle>
-            <UserCheck className="h-5 w-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-700">
-              {stats.guardsOnDuty || 0}<span className="text-lg">/{stats.totalGuards || 0}</span>
-            </div>
-            <p className="text-sm text-green-600 mt-1">
-              {Math.round(((stats.guardsOnDuty || 0) / (stats.totalGuards || 1)) * 100)}% coverage active
-            </p>
-            <div className="flex items-center mt-2">
-              <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-              <span className="text-xs text-green-600">On duty now</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-purple-500 bg-gradient-to-br from-purple-50 to-purple-100">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-purple-800">Checkpoints</CardTitle>
-            <MapPin className="h-5 w-5 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-purple-700">
-              {stats.activeCheckpoints || 0}<span className="text-lg">/{stats.totalCheckpoints || 0}</span>
-            </div>
-            <p className="text-sm text-purple-600 mt-1">
-              {stats.checkpointCoverage || 0}% operational status
-            </p>
-            <Progress value={stats.checkpointCoverage || 0} className="h-2 mt-2 bg-purple-200" />
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50 to-amber-100">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-amber-800">Overall Performance</CardTitle>
-            <TrendingUp className="h-5 w-5 text-amber-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-amber-700">{stats.overallCompletionRate || 0}%</div>
-            <p className="text-sm text-amber-600 mt-1">
-              {stats.totalIncidents || 0} incidents reported
-            </p>
-            <Progress 
-              value={stats.overallCompletionRate || 0} 
-              className="h-2 mt-2 bg-amber-200" 
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Dashboard Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
-        {/* Live Patrol Monitoring */}
-        <Card className="xl:col-span-2 border border-gray-200 shadow-sm">
-          <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-3">
-                <Activity className="h-5 w-5 text-blue-600" />
-                Live Patrol Status
-                <Badge variant="secondary" className="ml-2">
-                  {getFilteredPatrols().length} patrols
-                </Badge>
-              </CardTitle>
               
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 capitalize">
+                  {navigationItems.find(item => item.id === activeTab)?.label || 'Admin Dashboard'}
+                </h2>
+                <p className="text-sm text-gray-500">
+                  {new Date().toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {/* Admin Profile */}
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Search patrols..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-48 h-8"
-                  />
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-32 h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="overdue">Overdue</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-900">
+                    {adminData?.name || adminData?.username || 'Admin'}
+                  </p>
+                  <Badge className="bg-amber-100 text-amber-800 text-xs">
+                    ADMIN
+                  </Badge>
+                </div>
+                <div className="h-8 w-8 bg-amber-100 rounded-full flex items-center justify-center">
+                  <User className="h-4 w-4 text-amber-600" />
                 </div>
               </div>
             </div>
-          </CardHeader>
-          
-          <CardContent className="p-0">
-            <div className="max-h-96 overflow-y-auto">
-              {getFilteredPatrols().length > 0 ? (
-                <div className="divide-y divide-gray-100">
-                  {getFilteredPatrols().map((patrol, index) => (
-                    <div
-                      key={patrol.id}
-                      className={`p-4 hover:bg-gray-50 transition-colors ${
-                        patrol.status === 'overdue' ? 'bg-red-50 border-l-4 border-l-red-500' :
-                        patrol.status === 'active' ? 'bg-blue-50 border-l-4 border-l-blue-500' :
-                        patrol.status === 'completed' ? 'bg-green-50 border-l-4 border-l-green-500' :
-                        'bg-yellow-50 border-l-4 border-l-yellow-500'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className={`p-3 rounded-full ${
-                            patrol.status === 'completed' ? 'bg-green-100 text-green-600' :
-                            patrol.status === 'active' ? 'bg-blue-100 text-blue-600' :
-                            patrol.status === 'overdue' ? 'bg-red-100 text-red-600' :
-                            'bg-yellow-100 text-yellow-600'
-                          }`}>
-                            {patrol.status === 'completed' ? <CheckCircle className="h-5 w-5" /> :
-                             patrol.status === 'active' ? <Clock className="h-5 w-5" /> :
-                             patrol.status === 'overdue' ? <AlertTriangle className="h-5 w-5" /> :
-                             <Clock className="h-5 w-5" />}
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <div className="font-semibold text-gray-900">
-                              {patrol.guardName} ({patrol.guardBadge})
-                            </div>
-                            <div className="text-sm text-gray-700 font-medium">{patrol.checkpointName}</div>
-                            <div className="text-xs text-gray-500">
-                              Started: {new Date(patrol.startTime).toLocaleString()}
-                              {patrol.endTime && (
-                                <span> • Ended: {new Date(patrol.endTime).toLocaleString()}</span>
-                              )}
-                            </div>
-                            {patrol.notes && (
-                              <div className="text-xs text-gray-600 mt-1 italic">"{patrol.notes}"</div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          {patrol.incidentsReported > 0 && (
-                            <Badge variant="destructive" className="text-xs">
-                              {patrol.incidentsReported} incident{patrol.incidentsReported !== 1 ? 's' : ''}
-                            </Badge>
-                          )}
-                          
-                          <Badge className={
-                            patrol.status === 'completed' ? "bg-green-100 text-green-800 border-green-200" :
-                            patrol.status === 'active' ? "bg-blue-100 text-blue-800 border-blue-200" :
-                            patrol.status === 'overdue' ? "bg-red-100 text-red-800 border-red-200" :
-                            "bg-yellow-100 text-yellow-800 border-yellow-200"
-                          }>
-                            {patrol.status.toUpperCase()}
-                          </Badge>
-                          
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                            {patrol.status === 'overdue' && (
-                              <Button variant="destructive" size="sm" className="h-8 px-2">
-                                <Phone className="h-3 w-3 mr-1" />
-                                Call
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <Target className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-                  <p className="text-lg font-medium">No patrols match your criteria</p>
-                  <p className="text-sm">Try adjusting your search or filter settings</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Guards Status Panel */}
-        <Card className="border border-gray-200 shadow-sm">
-          <CardHeader className="bg-gradient-to-r from-green-50 to-green-100 border-b">
-            <CardTitle className="flex items-center gap-3">
-              <Users className="h-5 w-5 text-green-600" />
-              Guard Management
-              <Badge variant="outline" className="ml-2">
-                {guards.filter(g => g.status === 'active').length} active
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="max-h-96 overflow-y-auto">
-              <div className="divide-y divide-gray-100">
-                {guards.filter(g => g.status === 'active').map((guard) => (
-                  <div key={guard.id} className="p-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${
-                          guard.onDuty ? 'bg-green-500' : 'bg-gray-400'
-                        }`} />
-                        <div>
-                          <div className="font-semibold text-gray-900">{guard.name}</div>
-                          <div className="text-sm text-gray-600">{guard.badge}</div>
-                        </div>
-                      </div>
-                      <Badge className={guard.onDuty ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
-                        {guard.onDuty ? 'On Duty' : 'Off Duty'}
-                      </Badge>
-                    </div>
-                    
-                    <div className="space-y-1 text-xs text-gray-600">
-                      <div>Shift: {guard.shift}</div>
-                      <div className="flex justify-between">
-                        <span>Completed: {guard.completedPatrols}/{guard.totalPatrols}</span>
-                        <span className="font-medium">{guard.completionRate}%</span>
-                      </div>
-                      <Progress value={guard.completionRate} className="h-1 mt-1" />
-                    </div>
-                    
-                    {guard.onDuty && (
-                      <div className="mt-2 flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                          <Phone className="h-3 w-3 mr-1" />
-                          Contact
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                          <Eye className="h-3 w-3 mr-1" />
-                          Track
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Checkpoint Performance Overview */}
-      <Card className="border border-gray-200 shadow-sm">
-        <CardHeader className="bg-gradient-to-r from-purple-50 to-purple-100 border-b">
-          <CardTitle className="flex items-center gap-3">
-            <MapPin className="h-5 w-5 text-purple-600" />
-            Checkpoint Performance Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 text-left">
-                  <th className="pb-3 text-sm font-semibold text-gray-900">Checkpoint Name</th>
-                  <th className="pb-3 text-sm font-semibold text-gray-900 text-center">Completed</th>
-                  <th className="pb-3 text-sm font-semibold text-gray-900 text-center">Assigned</th>
-                  <th className="pb-3 text-sm font-semibold text-gray-900 text-center">Completion %</th>
-                  <th className="pb-3 text-sm font-semibold text-gray-900 text-center">Incidents</th>
-                  <th className="pb-3 text-sm font-semibold text-gray-900 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {checkpoints.map((checkpoint) => {
-                  const completionRate = checkpoint.assignedPatrols > 0 
-                    ? Math.round((checkpoint.completedPatrols / checkpoint.assignedPatrols) * 100) 
-                    : 0;
-                  
-                  return (
-                    <tr key={checkpoint.id} className="hover:bg-gray-50">
-                      <td className="py-3">
-                        <div>
-                          <div className="font-medium text-gray-900">{checkpoint.name}</div>
-                          <div className="text-xs text-gray-500">{checkpoint.location}</div>
-                        </div>
-                      </td>
-                      <td className="py-3 text-center">
-                        <span className="font-medium text-green-600">{checkpoint.completedPatrols || 0}</span>
-                      </td>
-                      <td className="py-3 text-center">
-                        <span className="font-medium">{checkpoint.assignedPatrols || 0}</span>
-                      </td>
-                      <td className="py-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <span className={`font-medium ${
-                            completionRate >= 80 ? 'text-green-600' :
-                            completionRate >= 60 ? 'text-yellow-600' : 'text-red-600'
-                          }`}>
-                            {completionRate}%
-                          </span>
-                          <div className="w-16">
-                            <Progress 
-                              value={completionRate} 
-                              className="h-1" 
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 text-center">
-                        {checkpoint.incidentCount > 0 ? (
-                          <Badge variant="destructive" className="text-xs">
-                            {checkpoint.incidentCount}
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-400 text-sm">0</span>
-                        )}
-                      </td>
-                      <td className="py-3 text-center">
-                        <Badge
-                          variant={checkpoint.status === 'active' ? 'default' : 'secondary'}
-                          className={
-                            checkpoint.status === 'active' 
-                              ? 'bg-green-100 text-green-800 border-green-200'
-                              : 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                          }
-                        >
-                          {checkpoint.status}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="border-t-2 border-gray-300">
-                <tr className="font-semibold">
-                  <td className="py-3 text-gray-900">Grand Total</td>
-                  <td className="py-3 text-center text-green-600">{stats.totalCompletedPatrols || 0}</td>
-                  <td className="py-3 text-center">{stats.totalAssignedPatrols || 0}</td>
-                  <td className="py-3 text-center">
-                    <span className={`font-bold text-lg ${
-                      (stats.overallCompletionRate || 0) >= 80 ? 'text-green-600' :
-                      (stats.overallCompletionRate || 0) >= 60 ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {stats.overallCompletionRate || 0}%
-                    </span>
-                  </td>
-                  <td className="py-3 text-center">
-                    <Badge variant="outline" className="font-semibold">
-                      {stats.totalIncidents || 0}
-                    </Badge>
-                  </td>
-                  <td className="py-3 text-center">
-                    <Badge className="bg-blue-100 text-blue-800">
-                      {stats.activeCheckpoints}/{stats.totalCheckpoints}
-                    </Badge>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
           </div>
-        </CardContent>
-      </Card>
+        </header>
 
-      {/* System Health & Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Top Performers */}
-        <Card className="border border-gray-200 shadow-sm">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-blue-100 border-b">
-            <CardTitle className="flex items-center gap-3">
-              <TrendingUp className="h-5 w-5 text-blue-600" />
-              Top Performing Guards
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            <div className="space-y-3">
-              {guards
-                .filter((g) => g.status === 'active')
-                .sort((a, b) => (b.completionRate || 0) - (a.completionRate || 0))
-                .slice(0, 5)
-                .map((guard, index) => (
-                  <div
-                    key={guard.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        index === 0 ? 'bg-yellow-100 text-yellow-800' :
-                        index === 1 ? 'bg-gray-100 text-gray-700' :
-                        index === 2 ? 'bg-amber-100 text-amber-800' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
-                        {index + 1}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-gray-900">{guard.name}</div>
-                        <div className="text-sm text-gray-600">{guard.badge}</div>
-                        <div className="text-xs text-gray-500">
-                          {guard.completedPatrols}/{guard.totalPatrols} patrols completed
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <Badge className="bg-blue-100 text-blue-800 font-semibold">
-                        {guard.completionRate || 0}%
-                      </Badge>
-                      {guard.onDuty && (
-                        <div className="text-xs text-green-600 mt-1">On duty</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+        {/* Content Area */}
+        <main className="p-6">
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
+              <span className="text-lg text-gray-600">Loading admin dashboard...</span>
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        {/* System Health */}
-        <Card className="border border-gray-200 shadow-sm">
-          <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b">
-            <CardTitle className="flex items-center gap-3">
-              <Settings className="h-5 w-5 text-gray-600" />
-              System Health & Metrics
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-                <div className="text-2xl font-bold text-green-600">99.9%</div>
-                <div className="text-sm text-green-700 font-medium">System Uptime</div>
-                <div className="text-xs text-green-600 mt-1">Last 30 days</div>
-              </div>
-              
-              <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
-                <div className="text-2xl font-bold text-red-600">{stats.totalIncidents || 0}</div>
-                <div className="text-sm text-red-700 font-medium">Active Incidents</div>
-                <div className="text-xs text-red-600 mt-1">Requires attention</div>
-              </div>
-              
-              <div className="text-center p-4 bg-amber-50 rounded-lg border border-amber-200">
-                <div className="text-2xl font-bold text-amber-600">{stats.overduePatrols || 0}</div>
-                <div className="text-sm text-amber-700 font-medium">Overdue Alerts</div>
-                <div className="text-xs text-amber-600 mt-1">Action required</div>
-              </div>
-              
-              <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="text-2xl font-bold text-blue-600">{stats.activePatrols || 0}</div>
-                <div className="text-sm text-blue-700 font-medium">Active Patrols</div>
-                <div className="text-xs text-blue-600 mt-1">Currently running</div>
-              </div>
-            </div>
-            
-            {/* Quick Actions */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" className="text-xs">
-                  <Bell className="h-3 w-3 mr-1" />
-                  Test Alerts
+          {/* Error State */}
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="flex items-center justify-between">
+                <span>{error}</span>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => window.location.reload()}
+                  className="ml-4"
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Retry
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs">
-                  <Settings className="h-3 w-3 mr-1" />
-                  System Config
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Tab Content */}
+          {!loading && !error && renderActiveTab()}
+        </main>
       </div>
 
-      {/* Emergency Overdue Patrols Section */}
-      {stats.overduePatrols > 0 && (
-        <Card className="border-2 border-red-300 bg-red-50 shadow-lg">
-          <CardHeader className="bg-red-100 border-b border-red-200">
-            <CardTitle className="flex items-center gap-3 text-red-800">
-              <AlertTriangle className="h-6 w-6 animate-pulse" />
-              Emergency: Overdue Patrols Requiring Immediate Action
-              <Badge variant="destructive" className="ml-auto">
-                {stats.overduePatrols} OVERDUE
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            <div className="space-y-3">
-              {patrols
-                .filter((p) => p.status === 'overdue')
-                .map((patrol) => (
-                  <div
-                    key={patrol.id}
-                    className="flex items-center justify-between p-4 border border-red-200 rounded-lg bg-white shadow-sm"
-                  >
-                    <div className="flex items-center gap-4">
-                      <AlertTriangle className="h-5 w-5 text-red-600 animate-pulse" />
-                      <div>
-                        <div className="font-semibold text-red-900">
-                          {patrol.guardName} ({patrol.guardBadge})
-                        </div>
-                        <div className="text-sm text-red-700 font-medium">{patrol.checkpointName}</div>
-                        <div className="text-xs text-red-600">
-                          Expected: {new Date(patrol.startTime).toLocaleString()}
-                          <span className="ml-2 font-medium">
-                            ({Math.round((Date.now() - new Date(patrol.startTime).getTime()) / (1000 * 60))} min overdue)
-                          </span>
-                        </div>
-                        {patrol.notes && (
-                          <div className="text-xs text-red-600 mt-1 italic">"{patrol.notes}"</div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      {patrol.incidentsReported > 0 && (
-                        <Badge variant="destructive" className="text-xs animate-pulse">
-                          {patrol.incidentsReported} INCIDENT{patrol.incidentsReported !== 1 ? 'S' : ''}
-                        </Badge>
-                      )}
-                      
-                      <div className="flex gap-2">
-                        <Button variant="destructive" size="sm" className="font-medium">
-                          <Phone className="h-3 w-3 mr-1" />
-                          Emergency Call
-                        </Button>
-                        <Button variant="outline" size="sm" className="border-red-300 text-red-700 hover:bg-red-100">
-                          <Eye className="h-3 w-3 mr-1" />
-                          Track Location
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-            
-            <div className="mt-4 p-3 bg-red-100 rounded-lg border border-red-200">
-              <div className="text-sm text-red-800">
-                <strong>Action Required:</strong> Contact overdue guards immediately. Check GPS tracking if available. 
-                Escalate to supervisors if no response within 5 minutes.
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
-
-      {/* Recent Activity & Incident Log */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Recent Activity */}
-        <Card className="border border-gray-200 shadow-sm">
-          <CardHeader className="bg-gradient-to-r from-indigo-50 to-indigo-100 border-b">
-            <CardTitle className="flex items-center gap-3">
-              <Clock className="h-5 w-5 text-indigo-600" />
-              Recent System Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="max-h-80 overflow-y-auto">
-              <div className="divide-y divide-gray-100">
-                {patrols
-                  .sort((a, b) => new Date(b.startTime) - new Date(a.startTime))
-                  .slice(0, 10)
-                  .map((patrol, index) => (
-                    <div key={patrol.id} className="p-3 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${
-                          patrol.status === 'completed' ? 'bg-green-500' :
-                          patrol.status === 'active' ? 'bg-blue-500' :
-                          patrol.status === 'overdue' ? 'bg-red-500' :
-                          'bg-yellow-500'
-                        }`} />
-                        <div className="flex-1">
-                          <div className="text-sm">
-                            <span className="font-medium">{patrol.guardName}</span>
-                            <span className="text-gray-600"> • {patrol.checkpointName}</span>
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {new Date(patrol.startTime).toLocaleString()}
-                            {patrol.status === 'completed' && patrol.endTime && (
-                              <span> - {new Date(patrol.endTime).toLocaleString()}</span>
-                            )}
-                          </div>
-                        </div>
-                        <Badge variant="outline" className="text-xs">
-                          {patrol.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Incident Summary */}
-        <Card className="border border-gray-200 shadow-sm">
-          <CardHeader className="bg-gradient-to-r from-orange-50 to-orange-100 border-b">
-            <CardTitle className="flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-orange-600" />
-              Incident Summary
-              <Badge variant="outline" className="ml-auto">
-                {stats.totalIncidents || 0} total
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            {stats.totalIncidents > 0 ? (
-              <div className="space-y-3">
-                {patrols
-                  .filter(p => p.incidentsReported > 0)
-                  .slice(0, 5)
-                  .map((patrol) => (
-                    <div key={patrol.id} className="p-3 border border-orange-200 rounded-lg bg-orange-50">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="font-medium text-orange-900">{patrol.checkpointName}</div>
-                        <Badge variant="destructive" className="text-xs">
-                          {patrol.incidentsReported} incident{patrol.incidentsReported !== 1 ? 's' : ''}
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-orange-800">
-                        Reported by: {patrol.guardName} ({patrol.guardBadge})
-                      </div>
-                      <div className="text-xs text-orange-700 mt-1">
-                        {new Date(patrol.startTime).toLocaleString()}
-                      </div>
-                      <div className="text-sm text-orange-800 mt-2 italic">
-                        "{patrol.notes || 'No additional details provided'}"
-                      </div>
-                    </div>
-                  ))}
-                
-                <div className="mt-4 text-center">
-                  <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-100">
-                    View All Incidents
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <CheckCircle className="h-12 w-12 mx-auto text-green-400 mb-3" />
-                <p className="text-lg font-medium text-green-600">No Active Incidents</p>
-                <p className="text-sm text-gray-600">All systems operating normally</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Footer Stats Summary */}
-      <Card className="border border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 shadow-sm">
-        <CardContent className="p-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-center">
-            <div>
-              <div className="text-2xl font-bold text-amber-700">{new Date().toLocaleDateString()}</div>
-              <div className="text-sm text-amber-600">Report Date</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-blue-600">{stats.totalPatrols || 0}</div>
-              <div className="text-sm text-blue-700">Total Patrols</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-green-600">{stats.completedPatrols || 0}</div>
-              <div className="text-sm text-green-700">Completed</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-red-600">{stats.overduePatrols || 0}</div>
-              <div className="text-sm text-red-700">Overdue</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-purple-600">{stats.guardsOnDuty}/{stats.totalGuards}</div>
-              <div className="text-sm text-purple-700">Guards Active</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-indigo-600">{stats.overallCompletionRate || 0}%</div>
-              <div className="text-sm text-indigo-700">Success Rate</div>
-            </div>
-          </div>
-          
-          <div className="mt-4 pt-4 border-t border-amber-200 text-center">
-            <p className="text-sm text-amber-700">
-              <strong>{siteName}</strong> Security Management System • 
-              Last Updated: {new Date().toLocaleString()} • 
-              System Status: 
-              <Badge className="ml-1 bg-green-100 text-green-800">OPERATIONAL</Badge>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 };

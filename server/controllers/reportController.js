@@ -3,7 +3,17 @@ const { Checkpoint, PatrolLog, User } = require("../models");
 const { Parser } = require("json2csv");
 const PDFDocument = require("pdfkit");
 
-// ✅ Existing ones
+// Helper to calculate expected visits
+const getExpectedVisits = (cp, shift, days = 1) => {
+  const base = shift === "day" ? cp.expectedVisitsDay
+             : shift === "night" ? cp.expectedVisitsNight
+             : cp.expectedVisitsDay + cp.expectedVisitsNight;
+  return base * days;
+};
+
+// ================================
+// CHECKPOINT REPORT
+// ================================
 const getCheckpointReport = async (req, res) => {
   try {
     const { date, shift } = req.query;
@@ -23,19 +33,14 @@ const getCheckpointReport = async (req, res) => {
           },
         });
 
-        const expected =
-          shift === "day"
-            ? cp.expectedVisitsDay
-            : shift === "night"
-            ? cp.expectedVisitsNight
-            : cp.expectedVisitsDay + cp.expectedVisitsNight;
+        const expected = getExpectedVisits(cp, shift);
 
         return {
           checkpointId: cp.id,
           checkpointName: cp.name,
           expected,
           completed,
-          missed: expected - completed > 0 ? expected - completed : 0,
+          missed: Math.max(expected - completed, 0),
         };
       })
     );
@@ -47,6 +52,9 @@ const getCheckpointReport = async (req, res) => {
   }
 };
 
+// ================================
+// GUARD REPORT
+// ================================
 const getGuardReport = async (req, res) => {
   try {
     const { date, shift } = req.query;
@@ -67,22 +75,14 @@ const getGuardReport = async (req, res) => {
           },
         });
 
-        let expected = 0;
-        checkpoints.forEach((cp) => {
-          expected +=
-            shift === "day"
-              ? cp.expectedVisitsDay
-              : shift === "night"
-              ? cp.expectedVisitsNight
-              : cp.expectedVisitsDay + cp.expectedVisitsNight;
-        });
+        const expected = checkpoints.reduce((sum, cp) => sum + getExpectedVisits(cp, shift), 0);
 
         return {
           guardId: guard.id,
           guardName: guard.name,
           expected,
           completed,
-          missed: expected - completed > 0 ? expected - completed : 0,
+          missed: Math.max(expected - completed, 0),
         };
       })
     );
@@ -94,11 +94,9 @@ const getGuardReport = async (req, res) => {
   }
 };
 
-//
-// 🔹 NEW REPORTS
-//
-
-// 1️⃣ Daily/Shift Summary
+// ================================
+// SUMMARY REPORT
+// ================================
 const getSummaryReport = async (req, res) => {
   try {
     const { date, shift } = req.query;
@@ -107,16 +105,7 @@ const getSummaryReport = async (req, res) => {
     endDate.setHours(23, 59, 59, 999);
 
     const checkpoints = await Checkpoint.findAll();
-    let totalExpected = 0;
-
-    checkpoints.forEach((cp) => {
-      totalExpected +=
-        shift === "day"
-          ? cp.expectedVisitsDay
-          : shift === "night"
-          ? cp.expectedVisitsNight
-          : cp.expectedVisitsDay + cp.expectedVisitsNight;
-    });
+    const totalExpected = checkpoints.reduce((sum, cp) => sum + getExpectedVisits(cp, shift), 0);
 
     const totalCompleted = await PatrolLog.count({
       where: {
@@ -131,7 +120,7 @@ const getSummaryReport = async (req, res) => {
       totalCheckpoints: checkpoints.length,
       totalExpected,
       totalCompleted,
-      totalMissed: totalExpected - totalCompleted > 0 ? totalExpected - totalCompleted : 0,
+      totalMissed: Math.max(totalExpected - totalCompleted, 0),
     });
   } catch (error) {
     console.error(error);
@@ -139,55 +128,9 @@ const getSummaryReport = async (req, res) => {
   }
 };
 
-// 2️⃣ Multi-day Checkpoint Stats
-const getRangeCheckpointReport = async (req, res) => {
-  try {
-    const { start, end, shift } = req.query;
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    endDate.setHours(23, 59, 59, 999);
-
-    const checkpoints = await Checkpoint.findAll();
-
-    const report = await Promise.all(
-      checkpoints.map(async (cp) => {
-        const completed = await PatrolLog.count({
-          where: {
-            checkpointId: cp.id,
-            timestamp: { [Op.between]: [startDate, endDate] },
-            ...(shift && { shift }),
-          },
-        });
-
-        const days = Math.ceil(
-          (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24) + 1
-        );
-
-        const expected =
-          shift === "day"
-            ? cp.expectedVisitsDay * days
-            : shift === "night"
-            ? cp.expectedVisitsNight * days
-            : (cp.expectedVisitsDay + cp.expectedVisitsNight) * days;
-
-        return {
-          checkpointId: cp.id,
-          checkpointName: cp.name,
-          expected,
-          completed,
-          missed: expected - completed > 0 ? expected - completed : 0,
-        };
-      })
-    );
-
-    res.json(report);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to generate range checkpoint report" });
-  }
-};
-
-// 3️⃣ Exceptions Only (missed visits)
+// ================================
+// MISSED VISITS
+// ================================
 const getMissedVisitsReport = async (req, res) => {
   try {
     const { date, shift } = req.query;
@@ -207,12 +150,7 @@ const getMissedVisitsReport = async (req, res) => {
           },
         });
 
-        const expected =
-          shift === "day"
-            ? cp.expectedVisitsDay
-            : shift === "night"
-            ? cp.expectedVisitsNight
-            : cp.expectedVisitsDay + cp.expectedVisitsNight;
+        const expected = getExpectedVisits(cp, shift);
 
         if (completed < expected) {
           return {
@@ -233,17 +171,20 @@ const getMissedVisitsReport = async (req, res) => {
   }
 };
 
-// 4️⃣ Guard Detail Breakdown
+// ================================
+// GUARD DETAIL REPORT
+// ================================
 const getGuardDetailReport = async (req, res) => {
   try {
     const { id } = req.params;
     const { date, shift } = req.query;
-
     const startDate = new Date(date);
     const endDate = new Date(date);
     endDate.setHours(23, 59, 59, 999);
 
     const guard = await User.findByPk(id);
+    if (!guard) return res.status(404).json({ error: "Guard not found" });
+
     const checkpoints = await Checkpoint.findAll();
 
     const details = await Promise.all(
@@ -257,18 +198,13 @@ const getGuardDetailReport = async (req, res) => {
           },
         });
 
-        const expected =
-          shift === "day"
-            ? cp.expectedVisitsDay
-            : shift === "night"
-            ? cp.expectedVisitsNight
-            : cp.expectedVisitsDay + cp.expectedVisitsNight;
+        const expected = getExpectedVisits(cp, shift);
 
         return {
           checkpointName: cp.name,
           expected,
           completed,
-          missed: expected - completed > 0 ? expected - completed : 0,
+          missed: Math.max(expected - completed, 0),
         };
       })
     );
@@ -284,7 +220,9 @@ const getGuardDetailReport = async (req, res) => {
   }
 };
 
-// 5️⃣ CSV Export
+// ================================
+// EXPORT CSV
+// ================================
 const exportReportsCSV = async (req, res) => {
   try {
     const { date, shift } = req.query;
@@ -304,18 +242,13 @@ const exportReportsCSV = async (req, res) => {
           },
         });
 
-        const expected =
-          shift === "day"
-            ? cp.expectedVisitsDay
-            : shift === "night"
-            ? cp.expectedVisitsNight
-            : cp.expectedVisitsDay + cp.expectedVisitsNight;
+        const expected = getExpectedVisits(cp, shift);
 
         return {
           checkpoint: cp.name,
           expected,
           completed,
-          missed: expected - completed > 0 ? expected - completed : 0,
+          missed: Math.max(expected - completed, 0),
         };
       })
     );
@@ -332,7 +265,9 @@ const exportReportsCSV = async (req, res) => {
   }
 };
 
-// 6️⃣ PDF Export
+// ================================
+// EXPORT PDF
+// ================================
 const exportReportsPDF = async (req, res) => {
   try {
     const { date, shift } = req.query;
@@ -352,18 +287,13 @@ const exportReportsPDF = async (req, res) => {
           },
         });
 
-        const expected =
-          shift === "day"
-            ? cp.expectedVisitsDay
-            : shift === "night"
-            ? cp.expectedVisitsNight
-            : cp.expectedVisitsDay + cp.expectedVisitsNight;
+        const expected = getExpectedVisits(cp, shift);
 
         return {
           checkpoint: cp.name,
           expected,
           completed,
-          missed: expected - completed > 0 ? expected - completed : 0,
+          missed: Math.max(expected - completed, 0),
         };
       })
     );
@@ -373,13 +303,11 @@ const exportReportsPDF = async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename=report_${date}_${shift || "all"}.pdf`);
     doc.pipe(res);
 
-    doc.fontSize(18).text(`Patrol Report - ${date} (${shift || "all shifts"})`, { underline: true });
+    doc.fontSize(18).text(`Patrol Report - ${date} (${shift || "All Shifts"})`, { underline: true });
     doc.moveDown();
 
     report.forEach((row) => {
-      doc.fontSize(12).text(
-        `${row.checkpoint} | Expected: ${row.expected}, Completed: ${row.completed}, Missed: ${row.missed}`
-      );
+      doc.fontSize(12).text(`${row.checkpoint} | Expected: ${row.expected}, Completed: ${row.completed}, Missed: ${row.missed}`);
     });
 
     doc.end();
@@ -393,7 +321,6 @@ module.exports = {
   getCheckpointReport,
   getGuardReport,
   getSummaryReport,
-  getRangeCheckpointReport,
   getMissedVisitsReport,
   getGuardDetailReport,
   exportReportsCSV,

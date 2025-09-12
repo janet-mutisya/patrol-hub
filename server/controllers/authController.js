@@ -137,11 +137,11 @@ const register = async (req, res) => {
 // Login user
 const login = async (req, res) => {
   try {
-    console.log("Login attempt for:", req.body.email); // Debug log
+    console.log("Login attempt for:", req.body.email);
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log("Validation errors:", errors.array()); // Debug log
+      console.log("Validation errors:", errors.array());
       return res.status(400).json({
         success: false,
         message: "Validation failed",
@@ -156,11 +156,11 @@ const login = async (req, res) => {
       where: { email: email.toLowerCase() },
     });
 
-    console.log("User found:", user ? "Yes" : "No"); // Debug log
-    console.log("User active:", user ? user.isActive : "N/A"); // Debug log
+    console.log("User found:", user ? "Yes" : "No");
+    console.log("User active:", user ? user.isActive : "N/A");
 
     if (!user) {
-      console.log("User not found for email:", email); // Debug log
+      console.log("User not found for email:", email);
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
@@ -171,14 +171,13 @@ const login = async (req, res) => {
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        message:
-          "Account has been deactivated. Please contact administrator.",
+        message: "Account has been deactivated. Please contact administrator.",
       });
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    console.log("Password valid:", isPasswordValid); // Debug log
+    console.log("Password valid:", isPasswordValid);
     
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -187,23 +186,20 @@ const login = async (req, res) => {
       });
     }
 
-    // Ensure role fallback
-    const role = user.role || "guard";
-
     // Update last login timestamp
     await user.update({ lastLoginAt: new Date() });
-
-    // Generate JWT with the user object (not just an object with id and role)
+  
+    // Generate JWT with consistent secret
     const token = generateToken(user);
 
-    console.log(`User logged in: ${user.email} as ${role}`);
-
+    console.log(`User logged in: ${user.email} as ${user.role}`);
+    
     res.json({
       success: true,
       message: "Login successful",
       data: {
         user: sanitizeUser(user),
-        role,
+        role: user.role,
         token,
         expiresIn: process.env.JWT_EXPIRES_IN || "24h",
       },
@@ -216,7 +212,6 @@ const login = async (req, res) => {
     });
   }
 };
-
 // Get user profile
 const profile = async (req, res) => {
   try {

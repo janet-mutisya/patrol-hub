@@ -1,4 +1,3 @@
-// server/routes/userRoutes.js
 const express = require("express");
 const router = express.Router();
 
@@ -10,138 +9,104 @@ const {
   updateUser,
   deleteUser,
   reactivateUser,
-  bulkUpdateUsers,
-  searchUsers,
-  filterUsers,
-  getInactiveUsers,
-  exportUsersCSV,
-  exportUsersPDF,
-  getUserStats
+  getMyProfile,
+  updateMyProfile,
+  toggleMyDutyStatus,
+  assignUserToCheckpoint,
+  unassignUserFromCheckpoint,
+  getAssignedGuards,
+  getUnassignedGuards,
+  getGuardsByCheckpoint,
+  getUserSecurityInfo,
+  unlockUserAccount,
+  resetUserLoginAttempts,
+  resendEmailVerification,
+  forceVerifyEmail,
+  getUserActivity,
+  changeUserPassword,
+  getMyDutyStatus,
+  getNearbyCheckpoints,
+  getReportsSummary
 } = require("../controllers/userController");
+
+// DEBUG: Check which functions are undefined
+console.log("=== DEBUGGING IMPORTED FUNCTIONS ===");
+const imports = {
+  createUser,
+  getAllUsers,
+  getUserById,
+  updateUser,
+  deleteUser,
+  reactivateUser,
+  getMyProfile,
+  updateMyProfile,
+  toggleMyDutyStatus,
+  assignUserToCheckpoint,
+  unassignUserFromCheckpoint,
+  getAssignedGuards,
+  getUnassignedGuards,
+  getGuardsByCheckpoint,
+  getUserSecurityInfo,
+  unlockUserAccount,
+  resetUserLoginAttempts,
+  resendEmailVerification,
+  forceVerifyEmail,
+  getUserActivity,
+  changeUserPassword,
+  getMyDutyStatus,
+  getNearbyCheckpoints,
+  getReportsSummary
+};
+
+Object.entries(imports).forEach(([name, func]) => {
+  if (typeof func !== 'function') {
+    console.log(`❌ ${name} is ${typeof func} (${func})`);
+  } else {
+    console.log(`✅ ${name} is a function`);
+  }
+});
+console.log("=== END DEBUG ===");
 
 // Import middleware
 const { auth, requireRole } = require("../middlewares/auth");
 
-/**
- * @route   POST /api/users
- * @desc    Create a new user
- * @access  Private (Admin only)
- */
+// Test route
+router.get("/test", (req, res) => {
+  res.json({ success: true, message: "User routes are working!", timestamp: new Date() });
+});
+
+// Profile routes - MUST come before /:id routes (available to authenticated users)
+router.get("/me", auth, getMyProfile);
+router.patch("/me", auth, updateMyProfile);
+router.patch("/me/duty-status", auth, toggleMyDutyStatus);
+router.get("/me/duty-status", auth, getMyDutyStatus);
+
+// Reports & Checkpoints - Available to authenticated users
+router.get("/checkpoints/nearby", auth, getNearbyCheckpoints);
+router.get("/reports/summary", auth, getReportsSummary);
+
+// Admin-only management routes (before /:id)
+router.get("/assigned", auth, requireRole(['admin']), getAssignedGuards);
+router.get("/unassigned", auth, requireRole(['admin']), getUnassignedGuards);
+router.get("/checkpoint/:checkpointId/guards", auth, requireRole(['admin']), getGuardsByCheckpoint);
+
+// Basic CRUD routes - Admin only
+router.get("/", auth, requireRole(['admin']), getAllUsers);
 router.post("/", auth, requireRole(['admin']), createUser);
 
-/**
- * @route   GET /api/users
- * @desc    Get all users with pagination and filters
- * @access  Private (Admin and Supervisor)
- */
-router.get("/", auth, requireRole(['admin', 'supervisor']), getAllUsers);
-
-/**
- * @route   GET /api/users/stats
- * @desc    Get user statistics
- * @access  Private (Admin and Supervisor)
- */
-router.get("/stats", auth, requireRole(['admin', 'supervisor']), getUserStats);
-
-/**
- * @route   GET /api/users/search
- * @desc    Search users
- * @access  Private (Admin and Supervisor)
- */
-router.get("/search", auth, requireRole(['admin', 'supervisor']), searchUsers);
-
-/**
- * @route   GET /api/users/filter
- * @desc    Filter users
- * @access  Private (Admin and Supervisor)
- */
-router.get("/filter", auth, requireRole(['admin', 'supervisor']), filterUsers);
-
-/**
- * @route   GET /api/users/inactive
- * @desc    Get inactive users
- * @access  Private (Admin only)
- */
-router.get("/inactive", auth, requireRole(['admin']), getInactiveUsers);
-
-/**
- * @route   GET /api/users/export/csv
- * @desc    Export users as CSV
- * @access  Private (Admin only)
- */
-router.get("/export/csv", auth, requireRole(['admin']), exportUsersCSV);
-
-/**
- * @route   GET /api/users/export/pdf
- * @desc    Export users as PDF
- * @access  Private (Admin only)
- */
-router.get("/export/pdf", auth, requireRole(['admin']), exportUsersPDF);
-
-/**
- * @route   GET /api/users/:id
- * @desc    Get user by ID
- * @access  Private (Admin, Supervisor, or own profile)
- */
-router.get("/:id", auth, requireRole(['admin', 'supervisor', 'guard']), (req, res, next) => {
-  // Guards can only view their own profile
-  if (req.user.role === 'guard' && req.user.id.toString() !== req.params.id) {
-    return res.status(403).json({ error: "Guards can only view their own profile" });
-  }
-  next();
-}, getUserById);
-
-/**
- * @route   PUT /api/users/:id
- * @desc    Update user
- * @access  Private (Admin or own profile with restrictions)
- */
-router.put("/:id", auth, requireRole(['admin', 'supervisor', 'guard']), (req, res, next) => {
-  // Guards can only update their own profile and can't change role
-  if (req.user.role === 'guard') {
-    if (req.user.id.toString() !== req.params.id) {
-      return res.status(403).json({ error: "Guards can only update their own profile" });
-    }
-    // Remove role from update data for guards
-    if (req.body.role) {
-      delete req.body.role;
-    }
-  }
-  
-  // Supervisors can't promote users to admin
-  if (req.user.role === 'supervisor' && req.body.role === 'admin') {
-    return res.status(403).json({ error: "Supervisors cannot create admin users" });
-  }
-  
-  next();
-}, updateUser);
-
-/**
- * @route   DELETE /api/users/:id
- * @desc    Delete/deactivate user
- * @access  Private (Admin only)
- */
-router.delete("/:id", auth, requireRole(['admin']), (req, res, next) => {
-  // Prevent self-deletion
-  if (req.user.id.toString() === req.params.id) {
-    return res.status(400).json({ error: "Cannot delete your own account" });
-  }
-  next();
-}, deleteUser);
-
-/**
- * @route   PATCH /api/users/:id/reactivate
- * @desc    Reactivate user
- * @access  Private (Admin only)
- */
+// Individual user routes - Admin only (MUST come last due to /:id pattern)
+router.get("/:id/security", auth, requireRole(['admin']), getUserSecurityInfo);
+router.get("/:id/activity", auth, requireRole(['admin']), getUserActivity);
+router.get("/:id", auth, requireRole(['admin']), getUserById);
+router.patch("/:id", auth, requireRole(['admin']), updateUser);
+router.delete("/:id", auth, requireRole(['admin']), deleteUser);
 router.patch("/:id/reactivate", auth, requireRole(['admin']), reactivateUser);
+router.patch("/:id/assign-checkpoint", auth, requireRole(['admin']), assignUserToCheckpoint);
+router.patch("/:id/unassign-checkpoint", auth, requireRole(['admin']), unassignUserFromCheckpoint);
+router.patch("/:id/unlock", auth, requireRole(['admin']), unlockUserAccount);
+router.patch("/:id/reset-login-attempts", auth, requireRole(['admin']), resetUserLoginAttempts);
+router.patch("/:id/change-password", auth, requireRole(['admin']), changeUserPassword);
+router.post("/:id/resend-verification", auth, requireRole(['admin']), resendEmailVerification);
+router.patch("/:id/force-verify", auth, requireRole(['admin']), forceVerifyEmail);
 
-/**
- * @route   POST /api/users/bulk-update
- * @desc    Bulk update users
- * @access  Private (Admin only)
- */
-router.post("/bulk-update", auth, requireRole(['admin']), bulkUpdateUsers);
-
-console.log("📁 userRoutes.js loaded");
 module.exports = router;

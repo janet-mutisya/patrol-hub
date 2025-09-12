@@ -1,6 +1,6 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const { auth, requireRole } = require("../middlewares/auth");
+const { auth, requireRole, fallbackToGuard } = require('../middlewares/auth');
 const {
   createPatrolLog,
   getAllPatrolLogs,
@@ -15,52 +15,150 @@ const {
   getOverduePatrols,
   startPatrolServer,
   endPatrolServer,
-} = require("../controllers/patrollogController");
+} = require('../controllers/patrollogController');
 
-// ------------------------
-// CRUD Routes
-// ------------------------
-router.post("/", auth, requireRole(["admin"]), createPatrolLog);
-router.get("/", auth, getAllPatrolLogs);
-router.get("/:id", auth, getPatrolLogById);
-router.put("/:id", auth, requireRole(["admin"]), updatePatrolLog);
-router.delete("/:id", auth, requireRole(["admin"]), deletePatrolLog);
+// ================================
+// GUARD DASHBOARD ROUTES
+// ================================
 
-// ------------------------
-// Stats and bulk
-// ------------------------
-router.get("/stats/overview", auth, getPatrolStats);
-router.post("/bulk", auth, requireRole(["admin"]), bulkCreatePatrolLogs);
+// Guards can create their own patrol logs
+router.post('/', 
+  auth, 
+  fallbackToGuard,
+  requireRole(['guard', 'admin']), 
+  createPatrolLog
+);
 
-// ------------------------
-// Guard / Checkpoint specific
-// ------------------------
-router.get("/guard/:guardId", auth, getPatrolLogsByGuard);
-router.get("/checkpoint/:checkpointId", auth, getPatrolLogsByCheckpoint);
+// Guards get their own patrol logs
+router.get('/my-logs', 
+  auth, 
+  fallbackToGuard,
+  requireRole(['guard']), 
+  (req, res, next) => {
+    req.params.guardId = req.user.id;
+    next();
+  },
+  getPatrolLogsByGuard
+);
 
-// ------------------------
-// Patrol actions
-// ------------------------
-router.patch("/:id/complete", auth, requireRole(["guard", "admin"]), markPatrolCompleted);
-router.post("/:id/start", auth, requireRole(["guard"]), startPatrolServer);
-router.post("/:id/end", auth, requireRole(["guard"]), endPatrolServer);
 
-// ------------------------
-// Overdue patrols
-// ------------------------
-router.get("/status/overdue", auth, requireRole(["admin"]), getOverduePatrols);
+// Guards can view a single patrol log
+router.get('/:id', 
+  auth, 
+  fallbackToGuard,
+  requireRole(['guard', 'admin']), 
+  getPatrolLogById
+);
 
-// ------------------------
-// Export routes
-// ------------------------
-router.get("/export/csv", auth, requireRole(["admin", "guard"]), (req, res) => {
-  req.query.exportType = "csv";
-  getAllPatrolLogs(req, res);
-});
+// Guards can update their own logs
+router.put('/:id', 
+  auth, 
+  fallbackToGuard,
+  requireRole(['guard', 'admin']), 
+  updatePatrolLog
+);
 
-router.get("/export/pdf", auth, requireRole(["admin", "guard"]), (req, res) => {
-  req.query.exportType = "pdf";
-  getAllPatrolLogs(req, res);
-});
+// Mark patrol as completed (Guards)
+router.patch('/:id/complete', 
+  auth,
+  fallbackToGuard, 
+  requireRole(['guard', 'admin']), 
+  markPatrolCompleted
+);
+
+// Start patrol (Guards)
+router.patch('/:id/start', 
+  auth, 
+  fallbackToGuard,
+  requireRole(['guard', 'admin']), 
+  startPatrolServer
+);
+
+// End patrol (Guards)
+router.patch('/:id/end', 
+  auth,
+  fallbackToGuard, 
+  requireRole(['guard', 'admin']), 
+  endPatrolServer
+);
+
+// Get patrol logs by checkpoint (Guard & Admin)
+router.get('/checkpoint/:checkpointId', 
+  auth, 
+  requireRole(['guard', 'admin']), 
+  getPatrolLogsByCheckpoint
+);
+
+// ================================
+// ADMIN DASHBOARD ROUTES
+// ================================
+
+// Admin can get all patrol logs
+router.get('/', 
+  auth, 
+  requireRole(['admin']), 
+  getAllPatrolLogs
+);
+
+// Admin can get patrol statistics
+router.get('/stats', 
+  auth, 
+  requireRole(['admin']), 
+  getPatrolStats
+);
+
+// Admin can get overdue patrols
+router.get('/overdue', 
+  auth, 
+  requireRole(['admin']), 
+  getOverduePatrols
+);
+
+// Admin can bulk create patrol logs
+router.post('/bulk', 
+  auth, 
+  requireRole(['admin']), 
+  bulkCreatePatrolLogs
+);
+
+// Admin can delete patrol log
+router.delete('/:id', 
+  auth, 
+  requireRole(['admin']), 
+  deletePatrolLog
+);
+
+// Admin can get logs by any guard
+router.get('/guard/:guardId', 
+  auth, 
+  requireRole(['admin']), 
+  getPatrolLogsByGuard
+);
+
+// ================================
+// EXPORT ROUTES (Admin only)
+// ================================
+
+// Export logs as CSV
+router.get('/export/csv', 
+  auth, 
+  requireRole(['admin']), 
+  (req, res, next) => {
+    req.query.exportType = 'csv';
+    next();
+  },
+  getAllPatrolLogs
+);
+
+// Export logs as PDF
+router.get('/export/pdf', 
+  auth, 
+  requireRole(['admin']), 
+  (req, res, next) => {
+    req.query.exportType = 'pdf';
+    next();
+  },
+  getAllPatrolLogs
+);
 
 module.exports = router;

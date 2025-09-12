@@ -27,8 +27,8 @@ const createPatrolLog = async (req, res) => {
 
     const logWithDetails = await PatrolLog.findByPk(patrolLog.id, {
       include: [
-        { model: User, attributes: ["id", "name", "email"] },
-        { model: Checkpoint, attributes: ["id", "name", "location"] },
+        { model: User, as: "guard", attributes: ["id", "name", "email"] },
+        { model: Checkpoint, as: "checkpoint", attributes: ["id", "name", "location"] },
       ],
     });
 
@@ -72,8 +72,8 @@ const getAllPatrolLogs = async (req, res) => {
     if (search) {
       where[Op.or] = [
         { notes: { [Op.iLike]: `%${search}%` } },
-        { '$User.name$': { [Op.iLike]: `%${search}%` } },
-        { '$Checkpoint.name$': { [Op.iLike]: `%${search}%` } },
+        { '$guard.name$': { [Op.iLike]: `%${search}%` } },
+        { '$checkpoint.name$': { [Op.iLike]: `%${search}%` } },
       ];
     }
 
@@ -82,8 +82,8 @@ const getAllPatrolLogs = async (req, res) => {
     const { rows: logs, count } = await PatrolLog.findAndCountAll({
       where,
       include: [
-        { model: User, attributes: ["id", "name", "email", "role"], required: false },
-        { model: Checkpoint, attributes: ["id", "name", "location", "description"], required: false },
+        { model: User, as: "guard", attributes: ["id", "name", "email", "role"], required: false },
+        { model: Checkpoint, as: "checkpoint", attributes: ["id", "name", "location", "description"], required: false },
       ],
       order: [[sortBy, order.toUpperCase()]],
       limit: exportType ? undefined : parseInt(limit),
@@ -95,10 +95,10 @@ const getAllPatrolLogs = async (req, res) => {
     if (exportType === "csv") {
       const csvData = logs.map(log => ({
         id: log.id,
-        guard_name: log.User?.name || "Unknown",
-        guard_email: log.User?.email || "N/A",
-        checkpoint_name: log.Checkpoint?.name || "Unknown",
-        checkpoint_location: log.Checkpoint?.location || "N/A",
+        guard_name: log.guard?.name || "Unknown",
+        guard_email: log.guard?.email || "N/A",
+        checkpoint_name: log.checkpoint?.name || "Unknown",
+        checkpoint_location: log.checkpoint?.location || "N/A",
         status: log.status,
         notes: log.notes || "No notes",
         timestamp: log.timestamp,
@@ -136,8 +136,8 @@ const getAllPatrolLogs = async (req, res) => {
         yPos = doc.y;
         const row = [
           log.id.toString(),
-          log.User?.name || "Unknown",
-          log.Checkpoint?.name || "Unknown",
+          log.guard?.name || "Unknown",
+          log.checkpoint?.name || "Unknown",
           log.status,
           (log.notes || "").substring(0,20)+(log.notes?.length>20?"...":""),
           new Date(log.timestamp).toLocaleDateString(),
@@ -175,8 +175,8 @@ const getPatrolLogById = async (req,res)=>{
     const {id}=req.params;
     const log = await PatrolLog.findByPk(id,{
       include:[
-        {model:User,attributes:["id","name","email","role"]},
-        {model:Checkpoint,attributes:["id","name","location","description"]}
+        {model:User, as: "guard", attributes:["id","name","email","role"]},
+        {model:Checkpoint, as: "checkpoint", attributes:["id","name","location","description"]}
       ]
     });
     if(!log) return res.status(404).json({message:"Patrol log not found"});
@@ -201,8 +201,8 @@ const updatePatrolLog = async(req,res)=>{
     await log.update(updateData);
     const updatedLog=await PatrolLog.findByPk(id,{
       include:[
-        {model:User,attributes:["id","name","email"]},
-        {model:Checkpoint,attributes:["id","name","location"]}
+        {model:User, as: "guard", attributes:["id","name","email"]},
+        {model:Checkpoint, as: "checkpoint", attributes:["id","name","location"]}
       ]
     });
     res.json({success:true,message:"Patrol log updated successfully",data:updatedLog});
@@ -288,30 +288,46 @@ const bulkCreatePatrolLogs=async(req,res)=>{
 // ------------------------
 // Get logs by guard
 // ------------------------
-const getPatrolLogsByGuard=async(req,res)=>{
-  try{
-    const {guardId}=req.params;
-    const {page=1,limit=10,status,startDate,endDate}=req.query;
-    const where={guardId};
-    if(status) where.status=status;
-    if(startDate&&endDate) where.timestamp={ [Op.between]: [new Date(startDate),new Date(endDate)] };
+const getPatrolLogsByGuard = async (req, res) => {
+  try {
+    const guardId = parseInt(req.params.guardId || req.user?.id);
+    if (!guardId) return res.status(400).json({ success: false, message: "Guard ID is required" });
 
-    const offset=(page-1)*limit;
-    const {rows:logs,count}=await PatrolLog.findAndCountAll({
+    const { page = 1, limit = 10, status, startDate, endDate } = req.query;
+    const where = { guardId };
+    if (status) where.status = status;
+    if (startDate && endDate) where.timestamp = { [Op.between]: [new Date(startDate), new Date(endDate)] };
+    else if (startDate) where.timestamp = { [Op.gte]: new Date(startDate) };
+    else if (endDate) where.timestamp = { [Op.lte]: new Date(endDate) };
+
+    const offset = (page - 1) * limit;
+
+    const { rows: logs, count } = await PatrolLog.findAndCountAll({
       where,
-      include:[
-        {model:User,attributes:["id","name","email"]},
-        {model:Checkpoint,attributes:["id","name","location"]}
+      include: [
+        { model: User, as: 'guard', attributes: ["id", "name", "email"] },
+        { model: Checkpoint, as: 'checkpoint', attributes: ["id", "name", "location"] },
       ],
-      order:[["timestamp","DESC"]],
-      limit:parseInt(limit),
-      offset:parseInt(offset),
+      order: [["timestamp", "DESC"]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
     });
 
-    res.json({success:true,total:count,page:parseInt(page),pages:Math.ceil(count/limit),data:logs});
-  }catch(error){
-    console.error("Error fetching patrol logs by guard:",error);
-    res.status(500).json({message:"Failed to fetch patrol logs for guard",error:process.env.NODE_ENV==="development"?error.message:undefined});
+    res.json({
+      success: true,
+      total: count,
+      page: parseInt(page),
+      pages: Math.ceil(count / limit),
+      data: logs,
+    });
+  } catch (error) {
+    console.error("Error fetching patrol logs by guard:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch patrol logs for guard",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      data: [],
+    });
   }
 };
 
@@ -330,8 +346,8 @@ const getPatrolLogsByCheckpoint=async(req,res)=>{
     const {rows:logs,count}=await PatrolLog.findAndCountAll({
       where,
       include:[
-        {model:User,attributes:["id","name","email"]},
-        {model:Checkpoint,attributes:["id","name","location"]}
+        {model:User, as: "guard", attributes:["id","name","email"]},
+        {model:Checkpoint, as: "checkpoint", attributes:["id","name","location"]}
       ],
       order:[["timestamp","DESC"]],
       limit:parseInt(limit),
@@ -355,7 +371,12 @@ const markPatrolCompleted=async(req,res)=>{
     const log=await PatrolLog.findByPk(id);
     if(!log) return res.status(404).json({message:"Patrol log not found"});
     await log.update({status:"completed",notes:notes||log.notes,completedAt:new Date()});
-    const updatedLog=await PatrolLog.findByPk(id,{include:[{model:User,attributes:["id","name","email"]},{model:Checkpoint,attributes:["id","name","location"]}]});
+    const updatedLog=await PatrolLog.findByPk(id,{
+      include:[
+        {model:User, as: "guard", attributes:["id","name","email"]},
+        {model:Checkpoint, as: "checkpoint", attributes:["id","name","location"]}
+      ]
+    });
     res.json({success:true,message:"Patrol marked as completed",data:updatedLog});
   }catch(error){
     console.error("Error marking patrol as completed:",error);
@@ -373,8 +394,8 @@ const getOverduePatrols=async(req,res)=>{
     const overdueLogs=await PatrolLog.findAll({
       where:{status:"pending",timestamp:{[Op.lt]:overdueTime}},
       include:[
-        {model:User,attributes:["id","name","email"]},
-        {model:Checkpoint,attributes:["id","name","location"]}
+        {model:User, as: "guard", attributes:["id","name","email"]},
+        {model:Checkpoint, as: "checkpoint", attributes:["id","name","location"]}
       ],
       order:[["timestamp","ASC"]]
     });
@@ -402,8 +423,8 @@ const startPatrolServer = async (req, res) => {
 
     const updatedLog = await PatrolLog.findByPk(id, {
       include: [
-        { model: User, attributes: ["id", "name", "email"] },
-        { model: Checkpoint, attributes: ["id", "name", "location"] },
+        { model: User, as: "guard", attributes: ["id", "name", "email"] },
+        { model: Checkpoint, as: "checkpoint", attributes: ["id", "name", "location"] },
       ],
     });
 
@@ -435,8 +456,8 @@ const endPatrolServer = async (req, res) => {
 
     const updatedLog = await PatrolLog.findByPk(id, {
       include: [
-        { model: User, attributes: ["id", "name", "email"] },
-        { model: Checkpoint, attributes: ["id", "name", "location"] },
+        { model: User, as: "guard", attributes: ["id", "name", "email"] },
+        { model: Checkpoint, as: "checkpoint", attributes: ["id", "name", "location"] },
       ],
     });
 
@@ -465,4 +486,3 @@ module.exports = {
   startPatrolServer,
   endPatrolServer,
 };
-

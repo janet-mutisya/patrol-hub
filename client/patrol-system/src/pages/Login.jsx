@@ -23,17 +23,17 @@ const Login = () => {
     try {
       const res = await apiCall("/auth/login", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           email: form.email.trim().toLowerCase(), // normalize email
           password: form.password.trim(), // trim password
-        }),
+        },
       });
 
       if (!res.success) {
         throw new Error(res.message || "Login failed");
       }
 
-      // ✅ Fix: access nested data correctly
+      // Fix: access nested data correctly
       const { user, token } = res.data;
 
       localStorage.setItem("token", token);

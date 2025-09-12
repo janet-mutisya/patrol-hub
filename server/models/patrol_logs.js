@@ -5,28 +5,29 @@ module.exports = (sequelize, DataTypes) => {
   const PatrolLog = sequelize.define(
     "PatrolLog",
     {
-      id: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true,
-      },
+      id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+
       guardId: {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: { model: "users", key: "id" },
         onDelete: "CASCADE",
         onUpdate: "CASCADE",
+        field: "guard_id", // maps model to DB column
       },
       guardName: { type: DataTypes.STRING(100), allowNull: true },
       badgeNumber: { type: DataTypes.STRING(50), allowNull: true },
+
       checkpointId: {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: { model: "checkpoints", key: "id" },
         onDelete: "CASCADE",
         onUpdate: "CASCADE",
+        field: "checkpoint_id", // maps model to DB column
       },
       checkpointName: { type: DataTypes.STRING(100), allowNull: true },
+
       type: {
         type: DataTypes.ENUM("patrol", "emergency-checkin"),
         defaultValue: "patrol",
@@ -39,57 +40,52 @@ module.exports = (sequelize, DataTypes) => {
       },
       notes: { type: DataTypes.TEXT, allowNull: true, defaultValue: "" },
       reason: { type: DataTypes.STRING(255), allowNull: true },
+
       startTime: { type: DataTypes.DATE, allowNull: true },
       endTime: { type: DataTypes.DATE, allowNull: true },
       timestamp: { type: DataTypes.DATE, defaultValue: DataTypes.NOW, allowNull: false },
       completedAt: { type: DataTypes.DATE, allowNull: true },
+
       startLatitude: { type: DataTypes.DECIMAL(10, 8), allowNull: true },
       startLongitude: { type: DataTypes.DECIMAL(11, 8), allowNull: true },
       endLatitude: { type: DataTypes.DECIMAL(10, 8), allowNull: true },
       endLongitude: { type: DataTypes.DECIMAL(11, 8), allowNull: true },
       latitude: { type: DataTypes.DECIMAL(10, 8), allowNull: true },
       longitude: { type: DataTypes.DECIMAL(11, 8), allowNull: true },
+
       priority: {
         type: DataTypes.ENUM("low", "medium", "high", "urgent"),
         defaultValue: "medium",
         allowNull: false,
       },
-      duration: {
-        type: DataTypes.INTEGER, // minutes
-        allowNull: true,
-        comment: "Duration of patrol in minutes",
-      },
+      duration: { type: DataTypes.INTEGER, allowNull: true, comment: "Duration in minutes" },
       incidentReported: { type: DataTypes.BOOLEAN, defaultValue: false, allowNull: false },
       weatherConditions: { type: DataTypes.STRING(100), allowNull: true },
-      equipmentUsed: { type: DataTypes.JSON, allowNull: true }, // e.g. ["Radio", "Torch"]
+      equipmentUsed: { type: DataTypes.JSON, allowNull: true },
     },
     {
       tableName: "patrol_logs",
       timestamps: true,
       indexes: [
-        { name: "idx_patrol_logs_guard_id", fields: ["guardId"] },
-        { name: "idx_patrol_logs_checkpoint_id", fields: ["checkpointId"] },
+        { name: "idx_patrol_logs_guard_id", fields: ["guard_id"] },
+        { name: "idx_patrol_logs_checkpoint_id", fields: ["checkpoint_id"] },
         { name: "idx_patrol_logs_status", fields: ["status"] },
         { name: "idx_patrol_logs_timestamp", fields: ["timestamp"] },
-        { name: "idx_patrol_logs_guard_checkpoint", fields: ["guardId", "checkpointId"] },
+        { name: "idx_patrol_logs_guard_checkpoint", fields: ["guard_id", "checkpoint_id"] },
         { name: "idx_patrol_logs_type", fields: ["type"] },
         { name: "idx_patrol_logs_start_time", fields: ["startTime"] },
         { name: "idx_patrol_logs_end_time", fields: ["endTime"] },
       ],
       hooks: {
         beforeUpdate: (patrolLog) => {
-          if (patrolLog.status === "completed" && !patrolLog.completedAt) {
-            patrolLog.completedAt = new Date();
-          }
+          if (patrolLog.status === "completed" && !patrolLog.completedAt) patrolLog.completedAt = new Date();
           if (patrolLog.startTime && patrolLog.endTime) {
             const durationMs = new Date(patrolLog.endTime) - new Date(patrolLog.startTime);
             patrolLog.duration = Math.round(durationMs / 60000);
           }
         },
         beforeCreate: (patrolLog) => {
-          if (patrolLog.status === "completed" && !patrolLog.completedAt) {
-            patrolLog.completedAt = new Date();
-          }
+          if (patrolLog.status === "completed" && !patrolLog.completedAt) patrolLog.completedAt = new Date();
           if (patrolLog.type === "emergency-checkin") {
             patrolLog.status = "completed";
             patrolLog.completedAt = new Date();
@@ -105,7 +101,7 @@ module.exports = (sequelize, DataTypes) => {
         },
         validDuration() {
           if (this.duration !== null && (this.duration < 0 || this.duration > 1440)) {
-            throw new Error("Duration must be between 0 and 1440 minutes (24 hours)");
+            throw new Error("Duration must be between 0 and 1440 minutes");
           }
         },
         validCoordinates() {
@@ -120,16 +116,27 @@ module.exports = (sequelize, DataTypes) => {
     }
   );
 
-  // Associations
+  // FIXED ASSOCIATIONS - This is the key fix
   PatrolLog.associate = (models) => {
-    PatrolLog.belongsTo(models.User, { foreignKey: "guardId", as: "guard" });
-    PatrolLog.belongsTo(models.Checkpoint, { foreignKey: "checkpointId", as: "checkpoint" });
+    // Make sure the alias matches what you use in your queries
+    PatrolLog.belongsTo(models.User, { 
+      foreignKey: "guardId", 
+      as: "guard",
+      targetKey: "id"
+    });
+    
+    PatrolLog.belongsTo(models.Checkpoint, { 
+      foreignKey: "checkpointId", 
+      as: "checkpoint",
+      targetKey: "id"
+    });
 
-    // Replace Incident with Report
+    // Optional: Add reverse associations if needed
     if (models.Report) {
-      PatrolLog.hasMany(models.Report, {
-        foreignKey: "patrolLogId",
+      PatrolLog.hasMany(models.Report, { 
+        foreignKey: "patrolLogId", 
         as: "reports",
+        sourceKey: "id"
       });
     }
   };
@@ -155,7 +162,7 @@ module.exports = (sequelize, DataTypes) => {
     return Math.round((this.duration / 60) * 100) / 100;
   };
 
-  // Class methods
+  // FIXED CLASS METHODS - Ensure proper alias usage
   PatrolLog.getStatusCounts = async function (whereClause = {}) {
     return await this.findAll({
       where: whereClause,
@@ -170,10 +177,56 @@ module.exports = (sequelize, DataTypes) => {
     return await this.findAll({
       where: { guardId, timestamp: { [Op.gte]: startDate } },
       include: [
-        { model: sequelize.models.User, as: "guard", attributes: ["id", "name", "badgeNumber"] },
-        { model: sequelize.models.Checkpoint, as: "checkpoint", attributes: ["id", "name", "location"] },
+        { 
+          model: sequelize.models.User, 
+          as: "guard", 
+          attributes: ["id", "name", "badgeNumber"] 
+        },
+        { 
+          model: sequelize.models.Checkpoint, 
+          as: "checkpoint", 
+          attributes: ["id", "name", "location"] 
+        },
       ],
       order: [["timestamp", "DESC"]],
+    });
+  };
+
+  // ADDITIONAL HELPER METHODS for your controller
+  PatrolLog.findWithAssociations = async function (whereClause = {}, options = {}) {
+    return await this.findAll({
+      where: whereClause,
+      include: [
+        { 
+          model: sequelize.models.User, 
+          as: "guard", 
+          attributes: ["id", "name", "email", "badgeNumber"] 
+        },
+        { 
+          model: sequelize.models.Checkpoint, 
+          as: "checkpoint", 
+          attributes: ["id", "name", "location"] 
+        },
+      ],
+      order: [["timestamp", "DESC"]],
+      ...options
+    });
+  };
+
+  PatrolLog.findByPkWithAssociations = async function (id) {
+    return await this.findByPk(id, {
+      include: [
+        { 
+          model: sequelize.models.User, 
+          as: "guard", 
+          attributes: ["id", "name", "email", "badgeNumber"] 
+        },
+        { 
+          model: sequelize.models.Checkpoint, 
+          as: "checkpoint", 
+          attributes: ["id", "name", "location"] 
+        },
+      ]
     });
   };
 
