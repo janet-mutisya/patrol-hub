@@ -1,12 +1,13 @@
-// routes/attendanceRoutes.js - Comprehensive attendance management routes with detailed comments
+// routes/attendanceRoutes.js - Enhanced version with new endpoints
 
 const express = require('express');
 const router = express.Router();
 
-// Import all controller functions for attendance management
+// Import controller functions
 const {
   checkIn,
   checkOut,
+  getAllCheckins,
   getActiveGuards,
   autoMarkAbsent,
   markOff,
@@ -15,21 +16,16 @@ const {
   getCurrentStatus
 } = require('../controllers/attendanceController');
 
-// Import authentication and authorization middleware
+// Import middleware
 const { auth, requireRole } = require('../middlewares/auth');
 
 // ==========================================
 // VALIDATION MIDDLEWARE
 // ==========================================
 
-/**
- * Validates check-in request data
- * Ensures latitude and longitude are provided for location tracking
- */
 const validateCheckIn = (req, res, next) => {
   const { latitude, longitude } = req.body;
   
-  // Location data is mandatory for security and geofencing
   if (!latitude || !longitude) {
     return res.status(400).json({
       success: false,
@@ -38,12 +34,10 @@ const validateCheckIn = (req, res, next) => {
     });
   }
   
-  // Optional: Add additional validation for coordinate ranges
-  // Latitude: -90 to 90, Longitude: -180 to 180
   if (latitude < -90 || latitude > 90) {
     return res.status(400).json({
       success: false,
-      error: 'Invalid latitude value',
+      error: 'Invalid latitude value. Must be between -90 and 90',
       code: 'INVALID_LATITUDE'
     });
   }
@@ -51,22 +45,17 @@ const validateCheckIn = (req, res, next) => {
   if (longitude < -180 || longitude > 180) {
     return res.status(400).json({
       success: false,
-      error: 'Invalid longitude value',
+      error: 'Invalid longitude value. Must be between -180 and 180',
       code: 'INVALID_LONGITUDE'
     });
   }
   
-  next(); // Proceed to next middleware/controller
+  next();
 };
 
-/**
- * Validates check-out request data
- * Similar to check-in validation but for check-out process
- */
 const validateCheckOut = (req, res, next) => {
   const { latitude, longitude } = req.body;
   
-  // Location required for check-out verification
   if (!latitude || !longitude) {
     return res.status(400).json({
       success: false,
@@ -75,7 +64,6 @@ const validateCheckOut = (req, res, next) => {
     });
   }
   
-  // Validate coordinate ranges
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
     return res.status(400).json({
       success: false,
@@ -87,14 +75,9 @@ const validateCheckOut = (req, res, next) => {
   next();
 };
 
-/**
- * Validates admin mark-off request data
- * Ensures required guard_id is provided for marking guard as off-duty
- */
 const validateMarkOff = (req, res, next) => {
   const { guard_id } = req.body;
   
-  // Guard ID is mandatory for identifying which guard to mark off
   if (!guard_id) {
     return res.status(400).json({
       success: false,
@@ -103,30 +86,15 @@ const validateMarkOff = (req, res, next) => {
     });
   }
   
-  // Optional: Validate guard_id format (if using UUIDs or specific format)
-  // if (!isValidId(guard_id)) {
-  //   return res.status(400).json({
-  //     success: false,
-  //     error: 'Invalid guard ID format',
-  //     code: 'INVALID_GUARD_ID'
-  //   });
-  // }
-  
   next();
 };
 
-/**
- * Validates pagination parameters for history requests
- * Ensures page and limit values are reasonable to prevent performance issues
- */
 const validatePagination = (req, res, next) => {
   let { page, limit } = req.query;
   
-  // Set defaults if not provided
   page = parseInt(page) || 1;
   limit = parseInt(limit) || 10;
   
-  // Prevent unreasonable pagination values
   if (page < 1) {
     return res.status(400).json({
       success: false,
@@ -143,28 +111,50 @@ const validatePagination = (req, res, next) => {
     });
   }
   
-  // Attach validated values to request
   req.pagination = { page, limit };
   next();
 };
 
+const validateDateQuery = (req, res, next) => {
+  const { date } = req.query;
+  
+  if (date) {
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Date must be in YYYY-MM-DD format',
+        code: 'INVALID_DATE_FORMAT'
+      });
+    }
+    
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date provided',
+        code: 'INVALID_DATE'
+      });
+    }
+  }
+  
+  next();
+};
+
 /**
- * Custom middleware for getting specific guard history (admin only)
- * Handles the specialized logic for admin viewing any guard's attendance history
+ * Get attendance history for specific guard (admin only) - Fixed version
  */
 const getGuardHistory = async (req, res) => {
   try {
-    // Extract guard ID from URL parameter
     const guardId = req.params.guard_id;
     const { page = 1, limit = 10, startDate, endDate } = req.query;
     
     console.log(`Admin ${req.user.email} requesting history for guard ${guardId}`);
 
-    // Import models here to avoid circular dependency issues
-    const { User, Attendance, PatrolLog } = require('../models');
+    const { User, Attendance } = require('../models');
     const { Op } = require('sequelize');
 
-    // Verify the requested guard exists
+    // Verify guard exists
     const guard = await User.findByPk(guardId);
     if (!guard) {
       return res.status(404).json({
@@ -174,74 +164,53 @@ const getGuardHistory = async (req, res) => {
       });
     }
 
-    // Build database query filter
+    // Build query
     const whereClause = { guard_id: guardId };
     
-    // Add optional date range filtering
     if (startDate || endDate) {
       whereClause.date = {};
       if (startDate) whereClause.date[Op.gte] = startDate;
       if (endDate) whereClause.date[Op.lte] = endDate;
     }
 
-    // Fetch attendance records with pagination and guard info
+    // Get attendance records
     const { count, rows: attendanceRecords } = await Attendance.findAndCountAll({
       where: whereClause,
-      order: [['checkInTime', 'DESC']], // Most recent first
+      order: [['checkInTime', 'DESC']],
       limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit),
-      include: [{
-        model: User,
-        as: 'guard',
-        attributes: ['name', 'badgeNumber']
-      }]
+      offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    // Get related patrol logs for checkpoint information
-    const attendanceIds = attendanceRecords.map(a => a.id);
-    const patrolLogs = await PatrolLog.findAll({
-      where: {
-        attendance_id: { [Op.in]: attendanceIds }
+    // Format the response using the guard we already fetched
+    const formattedHistory = attendanceRecords.map(attendance => ({
+      id: attendance.id,
+      guard_name: guard.name,
+      badge_number: guard.badgeNumber || 'N/A',
+      shift_name: attendance.shift + ' Shift',
+      date: attendance.date,
+      checkInTime: attendance.checkInTime,
+      checkOutTime: attendance.checkOutTime,
+      status: attendance.status,
+      late_minutes: 0,
+      total_hours: attendance.total_hours,
+      checkpoint: attendance.checkpoint_id ? `Checkpoint ${attendance.checkpoint_id}` : null,
+      notes: attendance.notes,
+      location: {
+        checkin: {
+          latitude: attendance.latitude,
+          longitude: attendance.longitude,
+          place_name: attendance.place_name,
+          formatted_address: attendance.formatted_address
+        },
+        checkout: attendance.checkout_latitude ? {
+          latitude: attendance.checkout_latitude,
+          longitude: attendance.checkout_longitude,
+          place_name: attendance.checkout_place_name,
+          formatted_address: attendance.checkout_formatted_address
+        } : null
       }
-    });
+    }));
 
-    // Create lookup map for efficient patrol log retrieval
-    const patrolLogMap = {};
-    patrolLogs.forEach(log => {
-      patrolLogMap[log.attendance_id] = log;
-    });
-
-    // Format attendance data with checkpoint information
-    const formattedHistory = attendanceRecords.map(attendance => {
-      const patrolLog = patrolLogMap[attendance.id];
-      let checkpointInfo = null;
-      
-      // Include checkpoint details if patrol log exists
-      if (patrolLog) {
-        checkpointInfo = {
-          id: patrolLog.checkpoint_id,
-          name: `Checkpoint ${patrolLog.checkpoint_id}`,
-          location: `Location ${patrolLog.checkpoint_id}`
-        };
-      }
-
-      return {
-        id: attendance.id,
-        guard_name: attendance.guard?.name || guard.name,
-        badge_number: attendance.guard?.badgeNumber || guard.badgeNumber || 'N/A',
-        shift_name: attendance.shift + ' Shift',
-        date: attendance.date,
-        checkInTime: attendance.checkInTime,
-        checkOutTime: attendance.checkOutTime,
-        status: attendance.status,
-        late_minutes: 0, // TODO: Calculate based on shift start time
-        total_hours: attendance.total_hours,
-        checkpoint: checkpointInfo,
-        notes: attendance.notes
-      };
-    });
-
-    // Return formatted history with guard context and pagination info
     res.status(200).json({
       success: true,
       data: formattedHistory,
@@ -275,26 +244,23 @@ const getGuardHistory = async (req, res) => {
 // PUBLIC/TEST ROUTES
 // ==========================================
 
-/**
- * Test route to verify attendance API is working
- * Returns system status and available endpoints
- * Useful for health checks and API documentation
- */
 router.get('/test', (req, res) => {
   res.json({ 
     success: true, 
-    message: 'Attendance routes are working!',
+    message: 'Enhanced Attendance routes are working!',
     timestamp: new Date(),
-    version: '1.0.0',
+    version: '2.0.0',
+    features: ['Reverse Geocoding', 'Location-based Check-ins', 'Enhanced Admin Views'],
     routes: {
       guard_routes: [
-        'GET /status - Get current attendance status',
-        'GET /history - Get attendance history with pagination',
-        'POST /check-in - Check in with location (lat/lng required)',
-        'POST /check-out - Check out with location (lat/lng required)'
+        'GET /status - Get current attendance status with location info',
+        'GET /history - Get attendance history with location details',
+        'POST /check-in - Check in with location (lat/lng required, gets place name)',
+        'POST /check-out - Check out with location (lat/lng required, gets place name)'
       ],
       admin_routes: [
-        'GET /active-guards - Get currently active guards',
+        'GET /active-guards - Get currently active guards with locations',
+        'GET /checkins - Get all guard check-ins with location details (NEW)',
         'POST /mark-absent - Auto mark absent guards for current shift',
         'POST /mark-off - Mark specific guard as off-duty',
         'GET /daily-report - Get comprehensive daily attendance report',
@@ -304,63 +270,72 @@ router.get('/test', (req, res) => {
   });
 });
 
-/**
- * Health check endpoint
- * Simple endpoint to verify service is running
- */
 router.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     status: 'healthy',
     timestamp: new Date(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    version: '2.0.0'
   });
 });
 
 // ==========================================
-// GUARD ROUTES (Available to guards and admins)
+// GUARD ROUTES
 // ==========================================
 
 /**
- * Get current user's attendance status
- * Shows if guard is checked in, current shift, hours worked, etc.
- * Used by mobile app to display current status on dashboard
+ * Get current guard attendance status
  */
 router.get('/status', 
-  auth, // Verify user is authenticated
+  auth,
   getCurrentStatus
 );
 
 /**
- * Get current user's attendance history
- * Paginated list of all attendance records for logged-in guard
- * Supports date filtering via query parameters
+ * Get guard's own attendance history with pagination
  */
 router.get('/history', 
-  auth, // Verify user is authenticated
-  validatePagination, // Ensure valid pagination parameters
+  auth,
+  validatePagination,
   getAttendanceHistory
 );
 
 /**
- * Guard check-in endpoint
- * Creates new attendance record with location validation
- * Optionally assigns guard to checkpoint if checkpoint_id provided
+ * Guard check-in with automatic location detection and reverse geocoding
+ * Body: { latitude: number, longitude: number, checkpoint_id?: number }
  */
 router.post('/check-in', 
-  auth, // Verify user is authenticated
-  validateCheckIn, // Validate location data
+  auth,
+  validateCheckIn,
   checkIn
 );
 
 /**
- * Guard check-out endpoint
- * Updates attendance record with check-out time and calculates total hours
- * Requires location validation for security
+ * Alternative check-in endpoint (same functionality)
+ */
+router.post('/checkin', 
+  auth,
+  validateCheckIn,
+  checkIn
+);
+
+/**
+ * Guard check-out with location
+ * Body: { latitude: number, longitude: number }
  */
 router.post('/check-out', 
-  auth, // Verify user is authenticated
-  validateCheckOut, // Validate location data
+  auth,
+  validateCheckOut,
+  checkOut
+);
+
+/**
+ * Alternative check-out endpoint (same functionality)
+ */
+router.post('/checkout', 
+  auth,
+  validateCheckOut,
   checkOut
 );
 
@@ -369,70 +344,28 @@ router.post('/check-out',
 // ==========================================
 
 /**
- * Get all currently active guards
- * Returns guards who have checked in but not checked out today
- * Used for monitoring current workforce and shift management
+ * Get all guard check-ins with location details (NEW MAIN ENDPOINT)
+ * Query params: ?page=1&limit=50&date=YYYY-MM-DD&guard_id=123
+ */
+router.get('/checkins', 
+  auth,
+  requireRole(['admin']),
+  validatePagination,
+  validateDateQuery,
+  getAllCheckins
+);
+
+/**
+ * Get currently active guards with location info
  */
 router.get('/active-guards', 
-  auth, // Verify user is authenticated
-  requireRole(['admin']), // Verify user has admin role
+  auth,
+  requireRole(['admin']),
   getActiveGuards
 );
 
 /**
- * Auto mark guards as absent
- * Creates absent attendance records for guards who haven't checked in
- * Typically used at shift start to identify no-shows
- */
-router.post('/mark-absent', 
-  auth, // Verify user is authenticated
-  requireRole(['admin']), // Verify user has admin role
-  autoMarkAbsent
-);
-
-/**
- * Manually mark a specific guard as off-duty
- * Used for scheduled days off, sick leave, or other approved absences
- * Requires guard_id in request body
- */
-router.post('/mark-off', 
-  auth, // Verify user is authenticated
-  requireRole(['admin']), // Verify user has admin role
-  validateMarkOff, // Validate required guard_id
-  markOff
-);
-
-/**
- * Get comprehensive daily attendance report
- * Shows attendance statistics broken down by shift and status
- * Supports date parameter to generate reports for specific dates
- */
-router.get('/daily-report', 
-  auth, // Verify user is authenticated
-  requireRole(['admin']), // Verify user has admin role
-  getDailyReport
-);
-
-/**
- * Get attendance history for any specific guard (admin view)
- * Allows admins to view detailed attendance history for any guard
- * Different from /history which only shows current user's records
- */
-router.get('/guard/:guard_id/history', 
-  auth, // Verify user is authenticated
-  requireRole(['admin']), // Verify user has admin role
-  validatePagination, // Ensure valid pagination
-  getGuardHistory // Custom middleware for guard-specific history
-);
-
-// ==========================================
-// LEGACY/ALTERNATIVE ROUTES
-// (For backwards compatibility)
-// ==========================================
-
-/**
  * Alternative endpoint for active guards
- * Maintains backwards compatibility with existing mobile apps
  */
 router.get('/active', 
   auth,
@@ -441,50 +374,232 @@ router.get('/active',
 );
 
 /**
+ * Auto-mark absent guards for current shift
+ */
+router.post('/mark-absent', 
+  auth,
+  requireRole(['admin']),
+  autoMarkAbsent
+);
+
+/**
+ * Manually mark a specific guard as off-duty
+ * Body: { guard_id: number, reason?: string }
+ */
+router.post('/mark-off', 
+  auth,
+  requireRole(['admin']),
+  validateMarkOff,
+  markOff
+);
+
+/**
+ * Get comprehensive daily attendance report
+ * Query params: ?date=YYYY-MM-DD (defaults to today)
+ */
+router.get('/daily-report', 
+  auth,
+  requireRole(['admin']),
+  validateDateQuery,
+  getDailyReport
+);
+
+/**
  * Alternative endpoint for daily report
- * Maintains backwards compatibility with existing admin dashboards
  */
 router.get('/report/daily', 
   auth,
   requireRole(['admin']),
+  validateDateQuery,
   getDailyReport
 );
 
+/**
+ * Get attendance history for any specific guard (admin view)
+ * Path params: guard_id
+ * Query params: ?page=1&limit=10&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+ */
+router.get('/guard/:guard_id/history', 
+  auth,
+  requireRole(['admin']),
+  validatePagination,
+  getGuardHistory
+);
+
 // ==========================================
-// BULK OPERATIONS (Future enhancement endpoints)
+// UTILITY ROUTES
 // ==========================================
 
 /**
- * Bulk check-in multiple guards (future feature)
- * Could be used for emergency situations or group deployments
+ * Test reverse geocoding functionality
  */
-// router.post('/bulk-check-in',
-//   auth,
-//   requireRole(['admin']),
-//   (req, res) => {
-//     res.status(501).json({
-//       success: false,
-//       message: 'Bulk check-in feature not implemented yet',
-//       code: 'NOT_IMPLEMENTED'
-//     });
-//   }
-// );
+router.get('/test-geocoding', 
+  auth,
+  requireRole(['admin']),
+  async (req, res) => {
+    const { lat, lng } = req.query;
+    
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        error: 'lat and lng query parameters are required',
+        example: '/api/attendance/test-geocoding?lat=-1.2921&lng=36.8219'
+      });
+    }
+
+    try {
+      const axios = require('axios');
+      
+      const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+        params: {
+          format: 'json',
+          lat: parseFloat(lat),
+          lon: parseFloat(lng),
+          zoom: 18,
+          addressdetails: 1
+        },
+        headers: {
+          'User-Agent': 'SecurityGuardApp/1.0'
+        },
+        timeout: 10000
+      });
+
+      res.json({
+        success: true,
+        coordinates: { latitude: parseFloat(lat), longitude: parseFloat(lng) },
+        geocoding_result: response.data,
+        formatted: {
+          place_name: response.data.display_name || `${lat}, ${lng}`,
+          address: response.data.address || {}
+        }
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Geocoding test failed',
+        details: error.message
+      });
+    }
+  }
+);
 
 /**
- * Export attendance data (future feature)
- * Could generate CSV/Excel reports for payroll or compliance
+ * Get system statistics
  */
-// router.get('/export',
-//   auth,
-//   requireRole(['admin']),
-//   (req, res) => {
-//     res.status(501).json({
-//       success: false,
-//       message: 'Export feature not implemented yet',
-//       code: 'NOT_IMPLEMENTED'
-//     });
-//   }
-// );
+router.get('/stats', 
+  auth,
+  requireRole(['admin']),
+  async (req, res) => {
+    try {
+      const { Attendance, User } = require('../models');
+      const { Op } = require('sequelize');
+      
+      const today = new Date();
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+      
+      const [totalGuards, todayCheckins, activeGuards] = await Promise.all([
+        User.count({ where: { role: 'guard', status: 'active' } }),
+        Attendance.count({
+          where: {
+            checkInTime: { [Op.between]: [startOfDay, endOfDay] }
+          }
+        }),
+        Attendance.count({
+          where: {
+            checkInTime: { [Op.between]: [startOfDay, endOfDay] },
+            checkOutTime: null
+          }
+        })
+      ]);
+      
+      res.json({
+        success: true,
+        stats: {
+          total_active_guards: totalGuards,
+          todays_checkins: todayCheckins,
+          currently_active: activeGuards,
+          attendance_rate: totalGuards > 0 ? Math.round((todayCheckins / totalGuards) * 100) : 0
+        },
+        date: today.toISOString().split('T')[0]
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get stats',
+        details: error.message
+      });
+    }
+  }
+);
+/**
+ * Export attendance report (CSV/Excel)
+ * Query params: ?date=YYYY-MM-DD&format=csv|xlsx
+ */
+router.get('/export',
+  auth,
+  requireRole(['admin']),
+  async (req, res) => {
+    try {
+      const { Attendance, User } = require('../models');
+      const { Op } = require('sequelize');
+      const { date = new Date().toISOString().split('T')[0], format = 'csv' } = req.query;
 
-// Export router for use in main app
+      const records = await Attendance.findAll({
+        where: { date },
+        include: [{ model: User, attributes: ['name', 'email', 'badgeNumber'] }],
+        order: [['checkInTime', 'ASC']]
+      });
+
+      // Convert to rows
+      const rows = records.map(r => ({
+        guard: r.User?.name || 'Unknown',
+        badge: r.User?.badgeNumber || 'N/A',
+        date: r.date,
+        checkIn: r.checkInTime,
+        checkOut: r.checkOutTime,
+        status: r.status,
+        totalHours: r.total_hours
+      }));
+
+      if (format === 'xlsx') {
+        const ExcelJS = require('exceljs');
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Attendance');
+
+        sheet.columns = [
+          { header: 'Guard', key: 'guard' },
+          { header: 'Badge', key: 'badge' },
+          { header: 'Date', key: 'date' },
+          { header: 'Check In', key: 'checkIn' },
+          { header: 'Check Out', key: 'checkOut' },
+          { header: 'Status', key: 'status' },
+          { header: 'Total Hours', key: 'totalHours' }
+        ];
+
+        sheet.addRows(rows);
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=attendance-${date}.xlsx`);
+
+        await workbook.xlsx.write(res);
+        res.end();
+      } else {
+        // Default CSV
+        const { Parser } = require('json2csv');
+        const parser = new Parser();
+        const csv = parser.parse(rows);
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=attendance-${date}.csv`);
+        res.send(csv);
+      }
+    } catch (err) {
+      console.error('Export error:', err);
+      res.status(500).json({ success: false, error: 'Failed to export report' });
+    }
+  }
+);
+
+
 module.exports = router;

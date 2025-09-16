@@ -5,6 +5,7 @@ const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
 // --- Middleware ---
 app.use(helmet());
@@ -12,9 +13,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
   "http://localhost:5000",
   "http://localhost:5173",
-  "http://localhost:5174", // 👈 Add this line
+  "http://localhost:5174",
 ];
-
 
 app.use(
   cors({
@@ -29,27 +29,20 @@ app.use(
   })
 );
 
-// 🔧 FIXED: Different limiters for different routes
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // only 10 login attempts per 15 mins
-  message: {
-    success: false,
-    message: "Too many login attempts, please try again later",
-  },
-});
-
-// Relaxed limiter for general API (higher cap during development)
+// --- Rate limiters ---
+// Relaxed limiter for general API
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "development" ? 1000 : 500, 
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === "development" ? 1000 : 500, // higher in dev
   message: {
     success: false,
     message: "Too many requests from this IP, please try again later",
   },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-// Apply general limiter only to API routes, not globally
+// Apply general limiter only to API routes
 app.use("/api", generalLimiter);
 
 // --- Body Parsers ---
@@ -59,9 +52,9 @@ app.use(express.urlencoded({ extended: true }));
 // --- ROUTES ---
 console.log("Loading route modules...\n");
 
-// Authentication routes (stricter limiter for login)
+// Authentication routes (login/signup have their own limiter inside authRoutes.js)
 const authRoutes = require("./routes/authRoutes");
-app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/auth", authRoutes);
 console.log("Auth routes mounted on /api/auth");
 
 // User management routes
@@ -104,13 +97,13 @@ app.get("/api/health", (req, res) => {
     timestamp: new Date().toISOString(),
     routes: {
       auth: "/api/auth",
-      users: "/api/users", 
+      users: "/api/users",
       checkpoints: "/api/checkpoints",
       patrolLogs: "/api/patrol-logs",
       reports: "/api/reports",
       shifts: "/api/shifts",
-      attendance: "/api/attendance"
-    }
+      attendance: "/api/attendance",
+    },
   });
 });
 
@@ -130,31 +123,41 @@ app.use((error, req, res, next) => {
   res.status(500).json({
     success: false,
     message: "Internal server error",
-    error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+    error:
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Something went wrong",
   });
 });
 
 // --- DATABASE CONNECTION ---
 const db = require("./models");
 
-// DISABLED: Database sync to avoid "Too many keys" error
-// Only authenticate connection without altering tables
 db.sequelize
   .authenticate()
   .then(() => {
     console.log("Database connection established successfully");
-    console.log("Models loaded:", Object.keys(db).filter(key => key !== 'sequelize' && key !== 'Sequelize' && key !== 'helpers'));
-    console.log("Note: Database sync is disabled. Tables structure should already exist.");
+    console.log(
+      "Models loaded:",
+      Object.keys(db).filter(
+        (key) =>
+          key !== "sequelize" && key !== "Sequelize" && key !== "helpers"
+      )
+    );
+    console.log(
+      "Note: Database sync is disabled. Tables structure should already exist."
+    );
   })
   .catch((err) => {
     console.error("Database connection error:", err);
-    console.log("Warning: Database connection failed but server will continue running");
+    console.log(
+      "Warning: Database connection failed but server will continue running"
+    );
   });
 
 // --- Start Server ---
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(` Security System Server running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
   console.log(` Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`Available endpoints:`);
   console.log(`   GET  /api/health          - Health check`);

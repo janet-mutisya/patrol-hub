@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,29 +21,32 @@ import {
   Square,
   Loader2
 } from 'lucide-react';
+import { decodeToken } from "react-jwt";
 
 const PatrolLogsDashboard = () => {
+  // Memoize stable values to prevent infinite re-renders
+  const stableToken = useMemo(() => localStorage.getItem("token"), []);
+  const stableUser = useMemo(() => stableToken ? decodeToken(stableToken) : null, [stableToken]);
+  const stableRole = useMemo(() => stableUser?.role || "guard", [stableUser]);
+
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState(null);
   const [selectedShift, setSelectedShift] = useState('all');
   const [overdueLogs, setOverdueLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState({});
+  const [exportLoading, setExportLoading] = useState({});
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [filters, setFilters] = useState({
     search: '',
     status: '',
     startDate: '',
     endDate: ''
   });
-  const [authError, setAuthError] = useState(false);
-
-  // Get user role and token - NO FALLBACK for token
-  const userRole = 'admin'; // Hardcoded for demo, replace with real logic
-  const token = localStorage.getItem('token'); 
 
   // Clear success message after timeout
   useEffect(() => {
@@ -53,197 +56,119 @@ const PatrolLogsDashboard = () => {
     }
   }, [successMessage]);
 
-  // Generate mock data
-  const generateMockData = useCallback(() => {
-    const mockLogs = [
-      {
-        id: 1,
-        timestamp: new Date().toISOString(),
-        status: 'completed',
-        notes: 'All security checks completed successfully. Perimeter secure.',
-        startTime: new Date(Date.now() - 3600000).toISOString(),
-        endTime: new Date().toISOString(),
-        guard: { name: 'John Doe', email: 'john@company.com' },
-        checkpoint: { name: 'Main Entrance', location: 'Building A' }
-      },
-      {
-        id: 2,
-        timestamp: new Date(Date.now() - 7200000).toISOString(),
-        status: 'pending',
-        notes: 'Scheduled patrol awaiting guard assignment',
-        guard: { name: 'Jane Smith', email: 'jane@company.com' },
-        checkpoint: { name: 'Parking Lot', location: 'Area B' }
-      },
-      {
-        id: 3,
-        timestamp: new Date(Date.now() - 1800000).toISOString(),
-        status: 'in-progress',
-        notes: 'Currently patrolling assigned area',
-        startTime: new Date(Date.now() - 1800000).toISOString(),
-        guard: { name: 'Mike Johnson', email: 'mike@company.com' },
-        checkpoint: { name: 'Emergency Exit', location: 'Building C' }
-      },
-      {
-        id: 4,
-        timestamp: new Date(Date.now() - 10800000).toISOString(),
-        status: 'skipped',
-        notes: 'Guard unavailable - shift coverage needed',
-        guard: { name: 'Sarah Wilson', email: 'sarah@company.com' },
-        checkpoint: { name: 'Rooftop Access', location: 'Building D' }
-      },
-      {
-        id: 5,
-        timestamp: new Date(Date.now() - 14400000).toISOString(),
-        status: 'completed',
-        notes: 'Night patrol completed without incidents',
-        startTime: new Date(Date.now() - 16200000).toISOString(),
-        endTime: new Date(Date.now() - 14400000).toISOString(),
-        guard: { name: 'Tom Brown', email: 'tom@company.com' },
-        checkpoint: { name: 'Server Room', location: 'Building E' }
-      }
-    ];
-
-    const mockStats = {
-      totalLogs: 150,
-      uniqueGuards: 12,
-      uniqueCheckpoints: 25,
-      avgDurationMinutes: 18,
-      statusBreakdown: {
-        completed: 85,
-        pending: 35,
-        skipped: 20,
-        'in-progress': 10
-      }
-    };
-
-    const mockOverdue = [
-      {
-        id: 6,
-        timestamp: new Date(Date.now() - 86400000).toISOString(),
-        status: 'pending',
-        notes: 'Night shift patrol overdue - requires immediate attention',
-        guard: { name: 'Alex Chen', email: 'alex@company.com' },
-        checkpoint: { name: 'Warehouse', location: 'Building F' }
-      },
-      {
-        id: 7,
-        timestamp: new Date(Date.now() - 129600000).toISOString(),
-        status: 'pending',
-        notes: 'Weekend patrol missed - security gap identified',
-        guard: { name: 'Lisa Martinez', email: 'lisa@company.com' },
-        checkpoint: { name: 'Loading Dock', location: 'Area G' }
-      }
-    ];
-
-    return { logs: mockLogs, stats: mockStats, overdue: mockOverdue };
+  // Handle authentication errors
+  const handleAuthError = useCallback((response) => {
+    if (response.status === 401) {
+      localStorage.removeItem("token");
+      setError("Session expired. Redirecting to login...");
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 2000);
+      return true;
+    }
+    return false;
   }, []);
 
-  // Fetch patrol logs with filters and pagination
+  // Fetch patrol logs with stable dependencies
   const fetchPatrolLogs = useCallback(async () => {
+    if (!stableToken) {
+      setError("Authentication token is required");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
     try {
-      setLoading(true);
-      setError('');
-      setAuthError(false);
-
-      // If no token, use demo data immediately
-      if (!token) {
-        console.log('No token found, using demo data');
-        const mockData = generateMockData();
-        setLogs(mockData.logs);
-        setStats(mockData.stats);
-        setLoading(false);
-        return;
-      }
-
       const params = new URLSearchParams({
         page: currentPage.toString(),
-        limit: '10',
-        ...(filters.search && { search: filters.search }),
-        ...(filters.status && { status: filters.status }),
-        ...(filters.startDate && { startDate: filters.startDate }),
-        ...(filters.endDate && { endDate: filters.endDate }),
-        ...(selectedShift && selectedShift !== 'all' && { shift: selectedShift }),
-        sortBy: 'createdAt',
-        sortOrder: 'DESC'
+        limit: "10",
+        sortBy: "createdAt",
+        sortOrder: "DESC"
       });
 
-      const endpoint = userRole === 'guard' 
-        ? '/api/patrol-logs/my-logs' 
+      // Only add non-empty filter values
+      if (filters.search.trim()) params.append('search', filters.search.trim());
+      if (filters.status) params.append('status', filters.status);
+      if (filters.startDate) params.append('startDate', filters.startDate);
+      if (filters.endDate) params.append('endDate', filters.endDate);
+      if (selectedShift !== "all") params.append('shift', selectedShift);
+
+      const endpoint = stableRole === "guard" 
+        ? `/api/patrol-logs/my-logs?${params}`
         : `/api/patrol-logs?${params}`;
 
       const response = await fetch(endpoint, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${stableToken}` 
+        }
       });
 
-      if (response.status === 401 || response.status === 403) {
-        setAuthError(true);
-        throw new Error('Authentication failed. Please log in again.');
-      }
+      if (handleAuthError(response)) return;
+      if (!response.ok) throw new Error("Failed to fetch patrol logs");
 
-      if (response.ok) {
-        const data = await response.json();
-        setLogs(data.data.logs || []);
-        setTotalPages(data.data.pagination?.totalPages || 1);
-        
-        // Set stats if provided
-        if (data.data.stats) {
-          setStats(data.data.stats);
-        }
-      } else {
-        throw new Error(`Failed to fetch patrol logs: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('Failed to fetch patrol logs:', error);
-      setError(error.message || 'Failed to fetch patrol logs');
-      
-      // Use mock data as fallback
-      if (!authError) {
-        const mockData = generateMockData();
-        setLogs(mockData.logs);
-        setStats(mockData.stats);
-      }
+      const data = await response.json();
+      setLogs(data.data.logs || []);
+      setTotalPages(data.data.pagination?.totalPages || 1);
+      setStats(data.data.stats || null);
+    } catch (err) {
+      console.error('Fetch patrol logs error:', err);
+      setError(err.message || "Failed to fetch patrol logs");
     } finally {
       setLoading(false);
     }
-  }, [currentPage, filters, selectedShift, userRole, token, generateMockData, authError]);
+  }, [stableToken, currentPage, filters, selectedShift, stableRole, handleAuthError]);
 
-  // Fetch overdue logs
+  // Fetch overdue logs with stable dependencies
   const fetchOverdueLogs = useCallback(async () => {
-    if (userRole !== 'admin') return;
+    if (stableRole !== 'admin' || !stableToken) return;
 
     try {
-      // If no token, use demo data
-      if (!token) {
-        const mockData = generateMockData();
-        setOverdueLogs(mockData.overdue);
+      const response = await fetch('/api/patrol-logs/overdue?hours=24', {
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${stableToken}` 
+        }
+      });
+
+      if (handleAuthError(response)) return;
+      if (!response.ok) {
+        console.error('Failed to fetch overdue logs');
         return;
       }
 
-      const response = await fetch('/api/patrol-logs/overdue?hours=24', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setOverdueLogs(data.data || []);
-      } else {
-        console.error('Failed to fetch overdue logs');
-        // Use mock overdue data
-        const mockData = generateMockData();
-        setOverdueLogs(mockData.overdue);
-      }
+      const data = await response.json();
+      setOverdueLogs(data.data || []);
     } catch (error) {
       console.error('Failed to fetch overdue logs:', error);
-      // Use mock overdue data as fallback
-      const mockData = generateMockData();
-      setOverdueLogs(mockData.overdue);
     }
-  }, [userRole, token, generateMockData]);
+  }, [stableRole, stableToken, handleAuthError]);
 
+  // Load data on mount and when dependencies change
   useEffect(() => {
     fetchPatrolLogs();
+  }, [fetchPatrolLogs]);
+
+  useEffect(() => {
     fetchOverdueLogs();
-  }, [fetchPatrolLogs, fetchOverdueLogs]);
+  }, [fetchOverdueLogs]);
+
+  // Refresh data when refresh trigger changes
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      fetchPatrolLogs();
+      if (stableRole === 'admin') {
+        fetchOverdueLogs();
+      }
+    }
+  }, [refreshTrigger, fetchPatrolLogs, fetchOverdueLogs, stableRole]);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, selectedShift]);
 
   // Status badge with support for all statuses
   const getStatusBadge = (status) => {
@@ -277,61 +202,42 @@ const PatrolLogsDashboard = () => {
     );
   };
 
-  // Handle patrol actions
+  // Handle patrol actions with refresh trigger
   const handlePatrolAction = async (logId, action) => {
+    if (!stableToken) {
+      setError("Authentication token is required");
+      return;
+    }
+
     try {
       setActionLoading(prev => ({ ...prev, [logId]: action }));
       setError('');
-
-      // Demo mode - just simulate the action
-      if (!token) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API delay
-        
-        const actionMessages = {
-          start: 'Patrol started successfully',
-          end: 'Patrol ended successfully', 
-          complete: 'Patrol marked as complete'
-        };
-        
-        setSuccessMessage(actionMessages[action] || 'Action completed successfully');
-        
-        // Update the log status in mock data
-        setLogs(prevLogs => 
-          prevLogs.map(log => {
-            if (log.id === logId) {
-              if (action === 'start') return { ...log, status: 'in-progress', startTime: new Date().toISOString() };
-              if (action === 'end') return { ...log, status: 'completed', endTime: new Date().toISOString() };
-              if (action === 'complete') return { ...log, status: 'completed', endTime: new Date().toISOString() };
-            }
-            return log;
-          })
-        );
-        
-        return;
-      }
 
       const response = await fetch(`/api/patrol-logs/${logId}/${action}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${stableToken}`
         }
       });
 
-      if (response.ok) {
-        const actionMessages = {
-          start: 'Patrol started successfully',
-          end: 'Patrol ended successfully', 
-          complete: 'Patrol marked as complete'
-        };
-        
-        setSuccessMessage(actionMessages[action] || 'Action completed successfully');
-        fetchPatrolLogs();
-        fetchOverdueLogs();
-      } else {
+      if (handleAuthError(response)) return;
+
+      if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || `Failed to ${action} patrol`);
       }
+
+      const actionMessages = {
+        start: 'Patrol started successfully',
+        end: 'Patrol ended successfully', 
+        complete: 'Patrol marked as complete'
+      };
+      
+      setSuccessMessage(actionMessages[action] || 'Action completed successfully');
+      
+      // Trigger refresh without calling functions directly
+      setRefreshTrigger(prev => prev + 1);
     } catch (error) {
       console.error(`Failed to ${action} patrol:`, error);
       setError(error.message || `Failed to ${action} patrol`);
@@ -340,49 +246,97 @@ const PatrolLogsDashboard = () => {
     }
   };
 
-  // Handle export
+  // Handle export with proper parameter handling and better error messages
   const handleExport = async (type) => {
+    if (!stableToken) {
+      setError("Authentication token is required");
+      return;
+    }
+
     try {
-      if (!token) {
-        setSuccessMessage(`${type.toUpperCase()} export simulated successfully (demo mode)`);
-        return;
+      setExportLoading(prev => ({ ...prev, [type]: true }));
+      setError('');
+
+      // Create clean query parameters - only include non-empty values
+      const params = new URLSearchParams();
+      if (filters.search && filters.search.trim()) {
+        params.append('search', filters.search.trim());
+      }
+      if (filters.status) {
+        params.append('status', filters.status);
+      }
+      if (filters.startDate) {
+        params.append('startDate', filters.startDate);
+      }
+      if (filters.endDate) {
+        params.append('endDate', filters.endDate);
+      }
+      if (selectedShift !== "all") {
+        params.append('shift', selectedShift);
       }
 
-      const params = new URLSearchParams(filters);
-      const response = await fetch(`/api/patrol-logs/export/${type}?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const queryString = params.toString();
+      const url = `/api/patrol-logs/export/${type}${queryString ? `?${queryString}` : ''}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': type === 'pdf' ? 'application/pdf' : 'text/csv',
+          Authorization: `Bearer ${stableToken}`
+        }
       });
 
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `patrol-logs-${new Date().toISOString().split('T')[0]}.${type}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        setSuccessMessage(`${type.toUpperCase()} export completed successfully`);
-      } else {
-        throw new Error(`Failed to export ${type}`);
+      if (handleAuthError(response)) return;
+
+      if (response.status === 403) {
+        throw new Error("You don't have permission to export logs. Please contact your administrator.");
       }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Export failed with status ${response.status}:`, errorText);
+        throw new Error(`Failed to export ${type}: ${response.status} ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `patrol-logs-${new Date().toISOString().split('T')[0]}.${type}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      setSuccessMessage(`${type.toUpperCase()} export completed successfully`);
     } catch (error) {
       console.error(`Export ${type} failed:`, error);
-      setError(`Failed to export ${type}`);
+      setError(error.message || `Failed to export ${type}`);
+    } finally {
+      setExportLoading(prev => ({ ...prev, [type]: false }));
     }
   };
 
+  // Simplified manual refresh handler - no double loading
+  const handleManualRefresh = useCallback(async () => {
+    await Promise.all([
+      fetchPatrolLogs(),
+      stableRole === 'admin' ? fetchOverdueLogs() : Promise.resolve()
+    ]);
+  }, [fetchPatrolLogs, fetchOverdueLogs, stableRole]);
+
   // Render action buttons based on status
   const renderActionButtons = (log) => {
-    const isLoading = actionLoading[log.id];
+    const logId = log.id || log._id;
+    const isLoading = actionLoading[logId];
     
     return (
       <div className="flex gap-2">
         {log.status === 'pending' && (
           <Button 
             size="sm" 
-            onClick={() => handlePatrolAction(log.id, 'start')}
+            onClick={() => handlePatrolAction(logId, 'start')}
             disabled={isLoading}
             className="bg-blue-600 hover:bg-blue-700"
           >
@@ -400,7 +354,7 @@ const PatrolLogsDashboard = () => {
         {log.status === 'in-progress' && (
           <Button 
             size="sm" 
-            onClick={() => handlePatrolAction(log.id, 'end')}
+            onClick={() => handlePatrolAction(logId, 'end')}
             disabled={isLoading}
             variant="outline"
           >
@@ -415,10 +369,10 @@ const PatrolLogsDashboard = () => {
           </Button>
         )}
         
-        {(log.status === 'pending' || log.status === 'in-progress') && userRole === 'admin' && (
+        {(log.status === 'pending' || log.status === 'in-progress') && stableRole === 'admin' && (
           <Button 
             size="sm" 
-            onClick={() => handlePatrolAction(log.id, 'complete')}
+            onClick={() => handlePatrolAction(logId, 'complete')}
             disabled={isLoading}
             className="bg-green-600 hover:bg-green-700"
           >
@@ -438,16 +392,49 @@ const PatrolLogsDashboard = () => {
 
   if (loading && logs.length === 0) {
     return (
-      <div className="p-6 space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2 mb-8"></div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-24 bg-gray-200 rounded"></div>
-            ))}
+      <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-500">Loading patrol logs...</p>
           </div>
-          <div className="h-96 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stableToken) {
+    return (
+      <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+        <Alert className="border-red-200 bg-red-50">
+          <AlertTriangle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            <strong>Authentication Required:</strong> Please log in to access the patrol logs dashboard.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  // Stronger error boundary for empty state with errors
+  if (error && logs.length === 0 && !loading) {
+    return (
+      <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+        <Alert className="border-red-200 bg-red-50">
+          <AlertTriangle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            <strong>Error:</strong> {error} – try refreshing or contact support.
+          </AlertDescription>
+        </Alert>
+        <div className="flex justify-center">
+          <Button onClick={handleManualRefresh} disabled={loading}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Shield className="h-4 w-4 mr-2" />
+            )}
+            Retry
+          </Button>
         </div>
       </div>
     );
@@ -461,35 +448,53 @@ const PatrolLogsDashboard = () => {
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Shield className="h-8 w-8 text-blue-600" />
             Patrol Logs
-            {!token && (
-              <Badge className="ml-2 bg-orange-100 text-orange-800 text-xs">
-                DEMO MODE
-              </Badge>
-            )}
           </h1>
           <p className="text-gray-600 mt-1">Monitor and manage security patrol activities</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => handleExport('csv')} variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
+          <Button 
+            onClick={handleManualRefresh}
+            variant="outline" 
+            size="sm"
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Shield className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+          
+          <Button 
+            onClick={() => handleExport('csv')} 
+            variant="outline" 
+            size="sm" 
+            disabled={exportLoading.csv || loading}
+          >
+            {exportLoading.csv ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
             Export CSV
           </Button>
-          <Button onClick={() => handleExport('pdf')} variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
+          
+          <Button 
+            onClick={() => handleExport('pdf')} 
+            variant="outline" 
+            size="sm" 
+            disabled={exportLoading.pdf || loading}
+          >
+            {exportLoading.pdf ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
             Export PDF
           </Button>
         </div>
       </div>
-
-      {/* Demo Mode Notice */}
-      {!token && (
-        <Alert className="border-orange-200 bg-orange-50">
-          <AlertTriangle className="h-4 w-4 text-orange-600" />
-          <AlertDescription className="text-orange-800">
-            <strong>Demo Mode:</strong> This dashboard is showing sample data. Connect to a real backend API for live data.
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Success Message */}
       {successMessage && (
@@ -567,22 +572,22 @@ const PatrolLogsDashboard = () => {
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4 text-green-600" />
                 <span className="font-medium">Completed:</span>
-                <span className="text-gray-600">{stats.statusBreakdown.completed}</span>
+                <span className="text-gray-600">{stats.statusBreakdown?.completed || 0}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Play className="h-4 w-4 text-blue-600" />
                 <span className="font-medium">In Progress:</span>
-                <span className="text-gray-600">{stats.statusBreakdown['in-progress'] || 0}</span>
+                <span className="text-gray-600">{stats.statusBreakdown?.['in-progress'] || 0}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-yellow-600" />
                 <span className="font-medium">Pending:</span>
-                <span className="text-gray-600">{stats.statusBreakdown.pending}</span>
+                <span className="text-gray-600">{stats.statusBreakdown?.pending || 0}</span>
               </div>
               <div className="flex items-center gap-2">
                 <XCircle className="h-4 w-4 text-red-600" />
                 <span className="font-medium">Skipped:</span>
-                <span className="text-gray-600">{stats.statusBreakdown.skipped}</span>
+                <span className="text-gray-600">{stats.statusBreakdown?.skipped || 0}</span>
               </div>
             </div>
           </CardContent>
@@ -658,7 +663,7 @@ const PatrolLogsDashboard = () => {
             </CardContent>
           </Card>
 
-          {/* Patrol Logs */}
+          {/* Patrol Logs Table with MongoDB _id support */}
           <Card className="border-0 shadow-sm">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -684,26 +689,39 @@ const PatrolLogsDashboard = () => {
                       </tr>
                     ) : (
                       logs.map((log, index) => (
-                        <tr key={log.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                        <tr key={log.id || log._id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                          {/* Column 1: ID */}
                           <td className="p-4">
-                            <span className="font-medium text-gray-900">#{log.id}</span>
+                            <span className="font-medium text-gray-900">#{log.id || log._id}</span>
                           </td>
+                          
+                          {/* Column 2: Guard */}
                           <td className="p-4">
                             <div>
                               <div className="font-medium text-gray-900">{log.guard?.name || 'Unknown'}</div>
                               <div className="text-sm text-gray-500">{log.guard?.email || ''}</div>
                             </div>
                           </td>
+                          
+                          {/* Column 3: Checkpoint */}
                           <td className="p-4">
                             <div>
                               <div className="font-medium text-gray-900">{log.checkpoint?.name || 'Unknown'}</div>
                               <div className="text-sm text-gray-500">{log.checkpoint?.location || ''}</div>
                             </div>
                           </td>
-                          <td className="p-4">{getStatusBadge(log.status)}</td>
+                          
+                          {/* Column 4: Status */}
+                          <td className="p-4">
+                            {getStatusBadge(log.status)}
+                          </td>
+                          
+                          {/* Column 5: Timestamp */}
                           <td className="p-4 text-gray-600">
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
+                          
+                          {/* Column 6: Duration */}
                           <td className="p-4 text-gray-600">
                             {log.startTime && log.endTime ? (
                               `${Math.round((new Date(log.endTime) - new Date(log.startTime)) / 60000)}m`
@@ -713,11 +731,15 @@ const PatrolLogsDashboard = () => {
                               '-'
                             )}
                           </td>
+                          
+                          {/* Column 7: Notes */}
                           <td className="p-4 max-w-xs">
                             <span className="text-gray-600 truncate block" title={log.notes}>
                               {log.notes || 'No notes'}
                             </span>
                           </td>
+                          
+                          {/* Column 8: Actions */}
                           <td className="p-4">
                             {renderActionButtons(log)}
                           </td>

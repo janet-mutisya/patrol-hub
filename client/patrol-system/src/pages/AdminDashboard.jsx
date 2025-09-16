@@ -1,1129 +1,627 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import React, { useState, useEffect } from 'react';
 import { 
+  Users, 
+  MapPin, 
+  Shield, 
+  Clock, 
+  AlertTriangle, 
+  CheckCircle, 
+  Activity,
+  FileText,
+  Settings,
+  Bell,
+  Search,
+  Plus,
+  Calendar,
+  TrendingUp,
+  Eye,
+  BarChart3,
+  Navigation,
+  LogOut,
   Menu,
   X,
-  Shield,
-  Users,
-  Clock,
-  MapPin,
-  Calendar,
-  FileText,
-  AlertTriangle,
+  Wifi,
+  WifiOff,
+  Server,
+  Database,
+  Zap,
   RefreshCw,
-  User,
-  LogOut,
-  Activity,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
-  Search,
   Filter,
-  Download
+  Download,
+  AlertCircle,
+  ChevronRight,
+  Timer,
+  MapIcon,
+  UserCheck,
+  UserX,
+  Pause,
+  Play
 } from 'lucide-react';
 
-const AdminDashboard = ({ token, onLogout }) => {
-  // Sidebar state
+const AdminDashboard = () => {
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [activeAlerts, setActiveAlerts] = useState(3);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('guards');
-  
-  // Data state
-  const [adminData, setAdminData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  
-  // Tab-specific data
-  const [tabData, setTabData] = useState({});
-  const [tabLoading, setTabLoading] = useState({});
-  const [tabError, setTabError] = useState({});
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [selectedTimeRange, setSelectedTimeRange] = useState('today');
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Search and filter states
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  // Network status monitoring
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
-  // Navigation items
-  const navigationItems = [
-    { id: 'guards', label: 'Manage Guards', icon: Users },
-    { id: 'shifts', label: 'Manage Shifts', icon: Clock },
-    { id: 'checkpoints', label: 'Manage Checkpoints', icon: MapPin },
-    { id: 'attendance', label: 'Attendance History', icon: Calendar },
-    { id: 'patrols', label: 'Patrol Logs', icon: Activity },
-    { id: 'reports', label: 'Reports', icon: FileText }
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Enhanced mock data with more realistic metrics
+  const metrics = {
+    totalGuards: 24,
+    activeGuards: 18,
+    onBreakGuards: 3,
+    totalCheckpoints: 12,
+    activePatrols: 7,
+    overduePatrols: 2,
+    completedPatrols: 45,
+    attendanceRate: 94.2,
+    completionRate: 88.5,
+    avgResponseTime: '3.2 min',
+    incidentsToday: 2,
+    systemUptime: 99.8
+  };
+
+  const recentActivity = [
+    { id: 1, type: 'patrol', message: 'Guard John Smith completed patrol at Main Entrance', time: '2 min ago', status: 'success', guard: 'John Smith' },
+    { id: 2, type: 'alert', message: 'Patrol overdue at Building C Entrance - 25 minutes', time: '15 min ago', status: 'warning', priority: 'high' },
+    { id: 3, type: 'attendance', message: 'Guard Sarah Johnson checked in for night shift', time: '32 min ago', status: 'info', guard: 'Sarah Johnson' },
+    { id: 4, type: 'checkpoint', message: 'New checkpoint "Loading Bay East" created', time: '1 hour ago', status: 'info' },
+    { id: 5, type: 'patrol', message: 'Guard Mike Rodriguez started patrol route Alpha', time: '1 hour ago', status: 'info', guard: 'Mike Rodriguez' },
+    { id: 6, type: 'incident', message: 'Security incident reported at Parking Lot B', time: '2 hours ago', status: 'error', priority: 'high' },
   ];
 
-  // API utility function
-  const makeApiCall = useCallback(async (endpoint, options = {}) => {
-    if (!token) {
-      throw new Error('Authentication token is required');
-    }
+  const overduePatrols = [
+    { guard: 'Alex Johnson', checkpoint: 'Parking Lot A', overdue: '25 min', severity: 'high', lastSeen: '10:30 AM', guardId: 'GRD-005' },
+    { guard: 'Maria Rodriguez', checkpoint: 'Building C Entrance', overdue: '12 min', severity: 'medium', lastSeen: '10:43 AM', guardId: 'GRD-008' }
+  ];
 
-    const defaultHeaders = {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    };
+  const activeGuardsList = [
+    { name: 'John Smith', location: 'Main Entrance', status: 'patrolling', battery: 85, lastUpdate: '1 min ago' },
+    { name: 'Sarah Johnson', location: 'Building A', status: 'stationed', battery: 92, lastUpdate: '30 sec ago' },
+    { name: 'Mike Rodriguez', location: 'Parking Lot C', status: 'patrolling', battery: 67, lastUpdate: '2 min ago' },
+    { name: 'Emma Wilson', location: 'Loading Bay', status: 'break', battery: 78, lastUpdate: '15 min ago' }
+  ];
 
-    const response = await fetch(`${process.env.REACT_APP_API_URL || ''}${endpoint}`, {
-      headers: { ...defaultHeaders, ...options.headers },
-      ...options
-    });
+  const navigation = [
+    { name: 'Dashboard', icon: BarChart3, path: '/', active: true, color: 'blue' },
+    { name: 'Guards Management', icon: Users, path: '/users', color: 'green' },
+    { name: 'Attendance System', icon: Clock, path: '/attendance', color: 'purple' },
+    { name: 'Checkpoints', icon: MapPin, path: '/checkpoints', color: 'yellow' },
+    { name: 'Patrol Logs', icon: Shield, path: '/patrols', color: 'indigo' },
+    { name: 'Shifts Management', icon: Calendar, path: '/shifts', color: 'pink' },
+    { name: 'Reports', icon: FileText, path: '/reports', color: 'orange' },
+    { name: 'Settings', icon: Settings, path: '/settings', color: 'gray' }
+  ];
 
-    if (!response.ok) {
-      let errorData = {};
-      try {
-        errorData = await response.json();
-      } catch (jsonError) {
-        console.error('Failed to parse error response as JSON:', jsonError);
-        errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
-      }
-      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return response.json();
-  }, [token]);
-
-  // Mock data for development - remove when backend is ready
-  const getMockData = (tabId) => {
-    switch (tabId) {
-      case 'guards':
-        return [
-          { id: 1, username: 'john_doe', name: 'John Doe', email: 'john@example.com', role: 'guard', status: 'active', phone: '+254712345678', hire_date: '2025-01-15' },
-          { id: 2, username: 'jane_smith', name: 'Jane Smith', email: 'jane@example.com', role: 'guard', status: 'active', phone: '+254712345679', hire_date: '2025-02-01' },
-          { id: 3, username: 'mike_wilson', name: 'Mike Wilson', email: 'mike@example.com', role: 'guard', status: 'inactive', phone: '+254712345680', hire_date: '2024-12-10' },
-          { id: 4, username: 'sarah_jones', name: 'Sarah Jones', email: 'sarah@example.com', role: 'supervisor', status: 'active', phone: '+254712345681', hire_date: '2024-11-20' }
-        ];
-      case 'shifts':
-        return [
-          { id: 1, name: 'Morning Shift', start_time: '06:00', end_time: '14:00', assigned_guard: 'John Doe', guard_id: 1, status: 'active', description: 'Standard morning security shift' },
-          { id: 2, name: 'Evening Shift', start_time: '14:00', end_time: '22:00', assigned_guard: 'Jane Smith', guard_id: 2, status: 'active', description: 'Evening security coverage' },
-          { id: 3, name: 'Night Shift', start_time: '22:00', end_time: '06:00', assigned_guard: 'Mike Wilson', guard_id: 3, status: 'inactive', description: 'Overnight security patrol' },
-          { id: 4, name: 'Weekend Shift', start_time: '08:00', end_time: '20:00', assigned_guard: 'Sarah Jones', guard_id: 4, status: 'active', description: 'Weekend coverage' }
-        ];
-      case 'checkpoints':
-        return [
-          { id: 1, name: 'Main Entrance', location: 'Building A - Lobby', description: 'Primary security checkpoint', status: 'active', qr_code: 'CP001', created_at: '2025-01-01' },
-          { id: 2, name: 'Parking Garage', location: 'Underground Level B1', description: 'Vehicle access control', status: 'active', qr_code: 'CP002', created_at: '2025-01-01' },
-          { id: 3, name: 'Emergency Exit', location: 'Building C - Rear', description: 'Emergency route monitoring', status: 'inactive', qr_code: 'CP003', created_at: '2025-01-01' },
-          { id: 4, name: 'Executive Floor', location: 'Building A - 15th Floor', description: 'VIP area security', status: 'active', qr_code: 'CP004', created_at: '2025-01-01' }
-        ];
-      case 'attendance':
-        return [
-          { id: 1, staff_name: 'John Doe', guard_id: 1, date: '2025-09-12', check_in: '06:00', check_out: '14:00', status: 'present', hours_worked: 8 },
-          { id: 2, staff_name: 'Jane Smith', guard_id: 2, date: '2025-09-12', check_in: '14:05', check_out: '22:00', status: 'late', hours_worked: 7.9 },
-          { id: 3, staff_name: 'Mike Wilson', guard_id: 3, date: '2025-09-12', check_in: null, check_out: null, status: 'absent', hours_worked: 0 },
-          { id: 4, staff_name: 'Sarah Jones', guard_id: 4, date: '2025-09-11', check_in: '08:00', check_out: '20:00', status: 'present', hours_worked: 12 }
-        ];
-      case 'patrols':
-        return [
-          { id: 1, guard_name: 'John Doe', guard_id: 1, checkpoint_name: 'Main Entrance', checkpoint_id: 1, timestamp: '2025-09-12 07:30', notes: 'All clear, no incidents', status: 'completed', duration: 15 },
-          { id: 2, guard_name: 'Jane Smith', guard_id: 2, checkpoint_name: 'Parking Garage', checkpoint_id: 2, timestamp: '2025-09-12 15:15', notes: 'Minor lighting issue reported', status: 'completed', duration: 10 },
-          { id: 3, guard_name: 'John Doe', guard_id: 1, checkpoint_name: 'Executive Floor', checkpoint_id: 4, timestamp: '2025-09-12 10:00', notes: 'VIP meeting in progress', status: 'completed', duration: 5 },
-          { id: 4, guard_name: 'Jane Smith', guard_id: 2, checkpoint_name: 'Emergency Exit', checkpoint_id: 3, timestamp: '2025-09-12 18:45', notes: 'Door alarm test completed', status: 'pending', duration: null }
-        ];
-      case 'reports':
-        return [
-          { id: 1, title: 'Daily Security Summary', type: 'daily', created_by: 'Admin User', created_at: '2025-09-12 08:00', status: 'completed', file_url: '/reports/daily_summary_2025-09-12.pdf' },
-          { id: 2, title: 'Weekly Attendance Report', type: 'attendance', created_by: 'Admin User', created_at: '2025-09-09 09:00', status: 'completed', file_url: '/reports/weekly_attendance_2025-W37.pdf' },
-          { id: 3, title: 'Incident Analysis Q3', type: 'incident', created_by: 'Manager', created_at: '2025-09-10 14:30', status: 'pending', file_url: null },
-          { id: 4, title: 'Monthly Patrol Coverage', type: 'patrol', created_by: 'Admin User', created_at: '2025-09-01 10:00', status: 'completed', file_url: '/reports/monthly_patrol_2025-08.pdf' }
-        ];
-      default:
-        return [];
-    }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    setRefreshing(false);
   };
 
-  // Fetch data for specific tab
-  const fetchTabData = useCallback(async (tabId) => {
-    console.log('Fetching data for tab:', tabId);
-    setTabLoading(prev => ({ ...prev, [tabId]: true }));
-    setTabError(prev => ({ ...prev, [tabId]: null }));
-
-    try {
-      // Configuration: Set to false when your backend APIs are ready
-      const useMockData = true;
-      
-      if (useMockData) {
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
+  const SystemStatus = () => (
+    <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+      <h4 className="font-medium text-gray-900 mb-3">System Health</h4>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            {isOnline ? (
+              <Wifi className="h-4 w-4 text-green-500 mr-2" />
+            ) : (
+              <WifiOff className="h-4 w-4 text-red-500 mr-2" />
+            )}
+            <span className="text-sm text-gray-600">Network</span>
+          </div>
+          <span className={`text-sm font-medium ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+            {isOnline ? 'Connected' : 'Offline'}
+          </span>
+        </div>
         
-        const mockData = getMockData(tabId);
-        console.log('Mock data for', tabId, ':', mockData);
-        setTabData(prev => ({ ...prev, [tabId]: mockData }));
-        return;
-      }
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Server className="h-4 w-4 text-green-500 mr-2" />
+            <span className="text-sm text-gray-600">Server</span>
+          </div>
+          <span className="text-sm font-medium text-green-600">Online</span>
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Database className="h-4 w-4 text-green-500 mr-2" />
+            <span className="text-sm text-gray-600">Database</span>
+          </div>
+          <span className="text-sm font-medium text-green-600">Connected</span>
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Zap className="h-4 w-4 text-yellow-500 mr-2" />
+            <span className="text-sm text-gray-600">Uptime</span>
+          </div>
+          <span className="text-sm font-medium text-gray-900">{metrics.systemUptime}%</span>
+        </div>
+      </div>
+    </div>
+  );
 
-      // Real API calls - uncomment and modify when backend is ready
-      let endpoint = '';
-      let params = '';
+  const MetricCard = ({ title, value, subtitle, icon: Icon, color = 'blue', trend, onClick, loading = false }) => (
+    <div 
+      className={`bg-white rounded-lg shadow p-6 border border-gray-200 transition-all duration-200 ${
+        onClick ? 'cursor-pointer hover:shadow-md hover:scale-105' : ''
+      }`}
+      onClick={onClick}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <p className={`text-3xl font-bold text-${color}-600 ${loading ? 'animate-pulse' : ''}`}>
+            {loading ? '...' : value}
+          </p>
+          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+        </div>
+        <div className={`p-4 bg-${color}-100 rounded-full`}>
+          <Icon className={`h-8 w-8 text-${color}-600`} />
+        </div>
+      </div>
+      {trend && (
+        <div className="mt-4 flex items-center">
+          <TrendingUp className={`h-4 w-4 mr-1 ${trend > 0 ? 'text-green-500' : 'text-red-500'}`} />
+          <span className={`text-sm ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {trend > 0 ? '+' : ''}{trend}% from last week
+          </span>
+        </div>
+      )}
+    </div>
+  );
 
-      switch (tabId) {
-        case 'guards':
-          endpoint = '/api/admin/guards';
-          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&search=${searchTerm}`;
-          break;
-        case 'shifts':
-          endpoint = '/api/admin/shifts';
-          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&search=${searchTerm}`;
-          break;
-        case 'checkpoints':
-          endpoint = '/api/admin/checkpoints';
-          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&search=${searchTerm}`;
-          break;
-        case 'attendance':
-          endpoint = '/api/admin/attendance';
-          params = `?date_from=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&date_to=${new Date().toISOString().split('T')[0]}`;
-          break;
-        case 'patrols':
-          endpoint = '/api/admin/patrols';
-          params = `?date_from=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&date_to=${new Date().toISOString().split('T')[0]}`;
-          break;
-        case 'reports':
-          endpoint = '/api/admin/reports';
-          params = `?status=${filterStatus !== 'all' ? filterStatus : ''}&type=${searchTerm}`;
-          break;
-        default:
-          console.log('Unknown tab:', tabId);
-          return;
-      }
+  const QuickActionButton = ({ title, icon: Icon, onClick, color = 'blue', disabled = false }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center justify-center p-4 bg-${color}-50 hover:bg-${color}-100 border-2 border-${color}-200 
+        rounded-lg transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed`}
+    >
+      <Icon className={`h-6 w-6 text-${color}-600 mr-2`} />
+      <span className={`text-sm font-medium text-${color}-700`}>{title}</span>
+    </button>
+  );
 
-      console.log('API endpoint:', `${endpoint}${params}`);
-      const response = await makeApiCall(`${endpoint}${params}`);
-      console.log('API response for', tabId, ':', response);
-      setTabData(prev => ({ ...prev, [tabId]: response.data || response }));
-    } catch (err) {
-      console.error(`Failed to fetch ${tabId} data:`, err);
-      setTabError(prev => ({ ...prev, [tabId]: err.message }));
-    } finally {
-      setTabLoading(prev => ({ ...prev, [tabId]: false }));
-    }
-  }, [makeApiCall, filterStatus, searchTerm]);
-
-  // CRUD operations
-  const handleCreate = async (tabId, data) => {
-    try {
-      const endpoint = `/api/admin/${tabId}`;
-      const response = await makeApiCall(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
-      console.log('Created successfully:', response);
-      // Refresh data
-      fetchTabData(tabId);
-      return response;
-    } catch (err) {
-      console.error('Create failed:', err);
-      throw err;
-    }
-  };
-
-  const handleUpdate = async (tabId, id, data) => {
-    try {
-      const endpoint = `/api/admin/${tabId}/${id}`;
-      const response = await makeApiCall(endpoint, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      });
-      console.log('Updated successfully:', response);
-      // Refresh data
-      fetchTabData(tabId);
-      return response;
-    } catch (err) {
-      console.error('Update failed:', err);
-      throw err;
-    }
-  };
-
-  const handleDelete = async (tabId, id) => {
-    try {
-      const endpoint = `/api/admin/${tabId}/${id}`;
-      await makeApiCall(endpoint, { method: 'DELETE' });
-      console.log('Deleted successfully');
-      // Refresh data
-      fetchTabData(tabId);
-    } catch (err) {
-      console.error('Delete failed:', err);
-      throw err;
-    }
-  };
-
-  // Fetch admin profile data
-  const fetchAdminData = useCallback(async () => {
-    try {
-      // Uncomment when backend is ready
-      // const response = await makeApiCall('/api/auth/me');
-      // const userData = response.data || response;
-      // setAdminData(userData);
-      
-      // Mock data for now
-      setAdminData({
-        id: 1,
-        name: 'Admin User',
-        username: 'admin',
-        email: 'admin@security.com',
-        role: 'admin',
-        profile_image: null
-      });
-    } catch (err) {
-      console.error('Failed to fetch admin data:', err);
-      setError('Failed to load admin profile data');
-    }
-  }, [makeApiCall]);
-
-  // Initialize dashboard data
-  useEffect(() => {
-    const initializeDashboard = async () => {
-      const currentToken = getAuthToken();
-      if (!currentToken) {
-        setError('Authentication token is required');
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        await fetchAdminData();
-      } catch (err) {
-        console.error('Dashboard initialization error:', err);
-        setError('Failed to initialize admin dashboard');
-      } finally {
-        setLoading(false);
+  const ActivityItem = ({ activity }) => {
+    const getStatusColor = (status) => {
+      switch (status) {
+        case 'success': return 'text-green-600 bg-green-100';
+        case 'warning': return 'text-yellow-600 bg-yellow-100';
+        case 'error': return 'text-red-600 bg-red-100';
+        default: return 'text-blue-600 bg-blue-100';
       }
     };
 
-    initializeDashboard();
-  }, [fetchAdminData]);
+    const getIcon = (type) => {
+      switch (type) {
+        case 'patrol': return Shield;
+        case 'alert': return AlertTriangle;
+        case 'attendance': return Clock;
+        case 'checkpoint': return MapPin;
+        case 'incident': return AlertCircle;
+        default: return Activity;
+      }
+    };
 
-  // Fetch data when tab changes
-  useEffect(() => {
-    if (!loading && !error && activeTab) {
-      fetchTabData(activeTab);
-    }
-  }, [activeTab, loading, error, fetchTabData]);
-
-  // Handle tab change
-  const handleTabChange = (tabId) => {
-    setActiveTab(tabId);
-    setSidebarOpen(false); // Close mobile sidebar
-    setSearchTerm(''); // Reset search
-    setFilterStatus('all'); // Reset filter
-  };
-
-  // Handle refresh
-  const handleRefresh = () => {
-    if (activeTab) {
-      fetchTabData(activeTab);
-    }
-  };
-
-  // Filter data based on search and status
-  const filterData = (data) => {
-    if (!data) return [];
-    
-    let filtered = data;
-
-    // Apply search filter
-    if (searchTerm) {
-      filtered = filtered.filter(item => 
-        Object.values(item).some(value => 
-          value && value.toString().toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      );
-    }
-
-    // Apply status filter
-    if (filterStatus !== 'all') {
-      filtered = filtered.filter(item => item.status === filterStatus);
-    }
-
-    return filtered;
-  };
-
-  // Enhanced Data table component
-  const DataTable = ({ data, columns, title, onAdd, onEdit, onDelete, onView, showSearch = true, showFilter = true }) => {
-    const filteredData = filterData(data);
+    const Icon = getIcon(activity.type);
 
     return (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-          <div className="flex gap-2">
-            {onAdd && (
-              <Button 
-                onClick={onAdd}
-                className="bg-amber-600 hover:bg-amber-700 text-white"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add New
-              </Button>
+      <div className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer">
+        <div className={`p-2 rounded-full ${getStatusColor(activity.status)}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-gray-900">{activity.message}</p>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-xs text-gray-500">{activity.time}</p>
+            {activity.priority && (
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                activity.priority === 'high' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {activity.priority}
+              </span>
             )}
           </div>
-        </CardHeader>
-        
-        {/* Search and Filter Controls */}
-        {(showSearch || showFilter) && (
-          <div className="px-6 pb-4">
-            <div className="flex flex-col sm:flex-row gap-4">
-              {showSearch && (
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                </div>
-              )}
-              
-              {showFilter && (
-                <div className="flex gap-2">
-                  <div className="relative">
-                    <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                    <select
-                      value={filterStatus}
-                      onChange={(e) => setFilterStatus(e.target.value)}
-                      className="pl-10 pr-8 py-2 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 appearance-none bg-white"
-                    >
-                      <option value="all">All Status</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="pending">Pending</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <CardContent>
-          {filteredData && filteredData.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    {columns.map((col) => (
-                      <th key={col.key} className="text-left py-3 px-4 font-medium text-gray-700">
-                        {col.label}
-                      </th>
-                    ))}
-                    <th className="text-right py-3 px-4 font-medium text-gray-700">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredData.map((item, index) => (
-                    <tr key={item.id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                      {columns.map((col) => (
-                        <td key={col.key} className="py-3 px-4 text-gray-600">
-                          {col.render ? col.render(item[col.key], item) : item[col.key] || '-'}
-                        </td>
-                      ))}
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex gap-1 justify-end">
-                          {onView && (
-                            <Button variant="ghost" size="sm" onClick={() => onView(item)} title="View">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {onEdit && (
-                            <Button variant="ghost" size="sm" onClick={() => onEdit(item)} title="Edit">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {onDelete && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => {
-                                if (confirm('Are you sure you want to delete this item?')) {
-                                  onDelete(item);
-                                }
-                              }} 
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-gray-600">
-                {data && data.length > 0 ? 'No items match your search criteria' : 'No data available'}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
-
-  // Tab components with enhanced functionality
-  const GuardsTab = () => {
-    const data = tabData.guards || [];
-    const columns = [
-      { key: 'username', label: 'Username' },
-      { key: 'name', label: 'Full Name' },
-      { key: 'email', label: 'Email' },
-      { key: 'phone', label: 'Phone' },
-      { 
-        key: 'role', 
-        label: 'Role',
-        render: (value) => {
-          const roleColors = {
-            admin: 'bg-red-100 text-red-800',
-            supervisor: 'bg-purple-100 text-purple-800',
-            guard: 'bg-blue-100 text-blue-800'
-          };
-          return (
-            <Badge className={roleColors[value?.toLowerCase()] || 'bg-gray-100 text-gray-800'}>
-              {value?.toUpperCase()}
-            </Badge>
-          );
-        }
-      },
-      { 
-        key: 'status', 
-        label: 'Status',
-        render: (value) => (
-          <Badge className={value === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-            {value?.toUpperCase() || 'INACTIVE'}
-          </Badge>
-        )
-      },
-      { key: 'hire_date', label: 'Hire Date' }
-    ];
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Manage Guards</h2>
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh}
-            disabled={tabLoading.guards}
-            className="border-amber-200 text-amber-700 hover:bg-amber-50"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.guards ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
         </div>
-        
-        {tabError.guards && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tabError.guards}</AlertDescription>
-          </Alert>
-        )}
-        
-        {tabLoading.guards ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-            <span className="text-lg text-gray-600">Loading guards...</span>
-          </div>
-        ) : (
-          <DataTable 
-            data={data}
-            columns={columns}
-            title="Guards Management"
-            onAdd={() => console.log('Add guard - would open modal/form')}
-            onEdit={(guard) => console.log('Edit guard:', guard)}
-            onDelete={(guard) => console.log('Delete guard:', guard)}
-            onView={(guard) => console.log('View guard details:', guard)}
-          />
-        )}
       </div>
     );
   };
 
-  const ShiftsTab = () => {
-    const data = tabData.shifts || [];
-    const columns = [
-      { key: 'name', label: 'Shift Name' },
-      { key: 'start_time', label: 'Start Time' },
-      { key: 'end_time', label: 'End Time' },
-      { key: 'assigned_guard', label: 'Assigned Guard' },
-      { key: 'description', label: 'Description' },
-      { 
-        key: 'status', 
-        label: 'Status',
-        render: (value) => (
-          <Badge className={value === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-            {value?.toUpperCase() || 'INACTIVE'}
-          </Badge>
-        )
-      }
-    ];
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Manage Shifts</h2>
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh}
-            disabled={tabLoading.shifts}
-            className="border-amber-200 text-amber-700 hover:bg-amber-50"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.shifts ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-        </div>
-        
-        {tabError.shifts && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tabError.shifts}</AlertDescription>
-          </Alert>
-        )}
-        
-        {tabLoading.shifts ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-            <span className="text-lg text-gray-600">Loading shifts...</span>
+  const NavigationMenu = () => (
+    <div className={`fixed inset-y-0 left-0 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+      w-64 bg-white shadow-lg transition-transform duration-300 ease-in-out z-50 md:relative md:translate-x-0`}>
+      
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <div className="flex items-center">
+            <Shield className="h-8 w-8 text-blue-600 mr-2" />
+            <span className="text-xl font-bold text-gray-900">SecureGuard</span>
           </div>
-        ) : (
-          <DataTable 
-            data={data}
-            columns={columns}
-            title="Shifts Management"
-            onAdd={() => console.log('Add shift - would open modal/form')}
-            onEdit={(shift) => console.log('Edit shift:', shift)}
-            onDelete={(shift) => console.log('Delete shift:', shift)}
-            onView={(shift) => console.log('View shift details:', shift)}
-          />
-        )}
-      </div>
-    );
-  };
-
-  const CheckpointsTab = () => {
-    const data = tabData.checkpoints || [];
-    const columns = [
-      { key: 'name', label: 'Checkpoint Name' },
-      { key: 'location', label: 'Location' },
-      { key: 'qr_code', label: 'QR Code' },
-      { key: 'description', label: 'Description' },
-      { 
-        key: 'status', 
-        label: 'Status',
-        render: (value) => (
-          <Badge className={value === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-            {value?.toUpperCase() || 'INACTIVE'}
-          </Badge>
-        )
-      },
-      { key: 'created_at', label: 'Created' }
-    ];
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Manage Checkpoints</h2>
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh}
-            disabled={tabLoading.checkpoints}
-            className="border-amber-200 text-amber-700 hover:bg-amber-50"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.checkpoints ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-        </div>
-        
-        {tabError.checkpoints && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tabError.checkpoints}</AlertDescription>
-          </Alert>
-        )}
-        
-        {tabLoading.checkpoints ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-            <span className="text-lg text-gray-600">Loading checkpoints...</span>
-          </div>
-        ) : (
-          <DataTable 
-            data={data}
-            columns={columns}
-            title="Checkpoints Management"
-            onAdd={() => console.log('Add checkpoint - would open modal/form')}
-            onEdit={(checkpoint) => console.log('Edit checkpoint:', checkpoint)}
-            onDelete={(checkpoint) => console.log('Delete checkpoint:', checkpoint)}
-            onView={(checkpoint) => console.log('View checkpoint details:', checkpoint)}
-          />
-        )}
-      </div>
-    );
-  };
-
-  const AttendanceTab = () => {
-    const data = tabData.attendance || [];
-    const columns = [
-      { key: 'staff_name', label: 'Staff Name' },
-      { key: 'date', label: 'Date' },
-      { key: 'check_in', label: 'Check In' },
-      { key: 'check_out', label: 'Check Out' },
-      { 
-        key: 'hours_worked', 
-        label: 'Hours',
-        render: (value) => value ? `${value}h` : '-'
-      },
-      { 
-        key: 'status', 
-        label: 'Status',
-        render: (value) => {
-          const statusColors = {
-            present: 'bg-green-100 text-green-800',
-            absent: 'bg-red-100 text-red-800',
-            late: 'bg-yellow-100 text-yellow-800'
-          };
-          return (
-            <Badge className={statusColors[value?.toLowerCase()] || 'bg-gray-100 text-gray-800'}>
-              {value?.toUpperCase() || 'UNKNOWN'}
-            </Badge>
-          );
-        }
-      }
-    ];
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Attendance History</h2>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh}
-              disabled={tabLoading.attendance}
-              className="border-amber-200 text-amber-700 hover:bg-amber-50"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.attendance ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={() => console.log('Export attendance data')}
-              className="border-green-200 text-green-700 hover:bg-green-50"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          </div>
-        </div>
-        
-        {tabError.attendance && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tabError.attendance}</AlertDescription>
-          </Alert>
-        )}
-        
-        {tabLoading.attendance ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-            <span className="text-lg text-gray-600">Loading attendance...</span>
-          </div>
-        ) : (
-          <DataTable 
-            data={data}
-            columns={columns}
-            title="Attendance Records"
-            onView={(record) => console.log('View attendance details:', record)}
-            showFilter={true}
-            showSearch={true}
-          />
-        )}
-      </div>
-    );
-  };
-
-  const PatrolsTab = () => {
-    const data = tabData.patrols || [];
-    const columns = [
-      { key: 'guard_name', label: 'Guard Name' },
-      { key: 'checkpoint_name', label: 'Checkpoint' },
-      { 
-        key: 'timestamp', 
-        label: 'Timestamp',
-        render: (value) => new Date(value).toLocaleString()
-      },
-      { 
-        key: 'duration', 
-        label: 'Duration',
-        render: (value) => value ? `${value} min` : 'Pending'
-      },
-      { key: 'notes', label: 'Notes' },
-      { 
-        key: 'status', 
-        label: 'Status',
-        render: (value) => (
-          <Badge className={value === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-            {value?.toUpperCase() || 'PENDING'}
-          </Badge>
-        )
-      }
-    ];
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Patrol Logs</h2>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh}
-              disabled={tabLoading.patrols}
-              className="border-amber-200 text-amber-700 hover:bg-amber-50"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.patrols ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={() => console.log('Export patrol logs')}
-              className="border-green-200 text-green-700 hover:bg-green-50"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          </div>
-        </div>
-        
-        {tabError.patrols && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tabError.patrols}</AlertDescription>
-          </Alert>
-        )}
-        
-        {tabLoading.patrols ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-            <span className="text-lg text-gray-600">Loading patrol logs...</span>
-          </div>
-        ) : (
-          <DataTable 
-            data={data}
-            columns={columns}
-            title="Patrol Logs"
-            onView={(log) => console.log('View patrol log details:', log)}
-          />
-        )}
-      </div>
-    );
-  };
-
-  const ReportsTab = () => {
-    const data = tabData.reports || [];
-    const columns = [
-      { key: 'title', label: 'Report Title' },
-      { 
-        key: 'type', 
-        label: 'Type',
-        render: (value) => {
-          const typeColors = {
-            daily: 'bg-blue-100 text-blue-800',
-            weekly: 'bg-green-100 text-green-800',
-            monthly: 'bg-purple-100 text-purple-800',
-            attendance: 'bg-orange-100 text-orange-800',
-            patrol: 'bg-indigo-100 text-indigo-800',
-            incident: 'bg-red-100 text-red-800'
-          };
-          return (
-            <Badge className={typeColors[value?.toLowerCase()] || 'bg-gray-100 text-gray-800'}>
-              {value?.toUpperCase()}
-            </Badge>
-          );
-        }
-      },
-      { key: 'created_by', label: 'Created By' },
-      { 
-        key: 'created_at', 
-        label: 'Created At',
-        render: (value) => new Date(value).toLocaleDateString()
-      },
-      { 
-        key: 'status', 
-        label: 'Status',
-        render: (value) => (
-          <Badge className={value === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-            {value?.toUpperCase() || 'PENDING'}
-          </Badge>
-        )
-      },
-      { 
-        key: 'file_url', 
-        label: 'Download',
-        render: (value, item) => value ? (
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={() => console.log('Download report:', item.title)}
-            className="text-blue-600 hover:text-blue-700"
-          >
-            <Download className="h-4 w-4" />
-          </Button>
-        ) : (
-          <span className="text-gray-400">-</span>
-        )
-      }
-    ];
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Reports</h2>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh}
-              disabled={tabLoading.reports}
-              className="border-amber-200 text-amber-700 hover:bg-amber-50"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${tabLoading.reports ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button 
-              onClick={() => console.log('Generate new report')}
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Generate Report
-            </Button>
-          </div>
-        </div>
-        
-        {tabError.reports && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tabError.reports}</AlertDescription>
-          </Alert>
-        )}
-        
-        {tabLoading.reports ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-            <span className="text-lg text-gray-600">Loading reports...</span>
-          </div>
-        ) : (
-          <DataTable 
-            data={data}
-            columns={columns}
-            title="Reports Management"
-            onAdd={() => console.log('Generate new report')}
-            onView={(report) => console.log('View report:', report)}
-            onDelete={(report) => console.log('Delete report:', report)}
-          />
-        )}
-      </div>
-    );
-  };
-
-  // Render active tab content
-  const renderActiveTab = () => {
-    switch (activeTab) {
-      case 'guards':
-        return <GuardsTab />;
-      case 'shifts':
-        return <ShiftsTab />;
-      case 'checkpoints':
-        return <CheckpointsTab />;
-      case 'attendance':
-        return <AttendanceTab />;
-      case 'patrols':
-        return <PatrolsTab />;
-      case 'reports':
-        return <ReportsTab />;
-      default:
-        return <GuardsTab />;
-    }
-  };
-
-  if (!token && !localStorage.getItem('authToken') && !localStorage.getItem('token') && !sessionStorage.getItem('authToken') && !sessionStorage.getItem('token')) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Alert variant="destructive" className="max-w-md">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            Authentication token is required to access the admin dashboard.
-            <br />
-            <small className="text-xs mt-2 block">
-              Debug Info: 
-              <br />• Token prop: {token ? '✓' : '✗'}
-              <br />• localStorage token: {localStorage.getItem('authToken') || localStorage.getItem('token') ? '✓' : '✗'}
-              <br />• sessionStorage token: {sessionStorage.getItem('authToken') || sessionStorage.getItem('token') ? '✓' : '✗'}
-            </small>
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-        fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0`}>
-        
-        {/* Sidebar Header */}
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <Shield className="h-8 w-8 text-amber-600" />
-            <h1 className="text-lg font-bold text-gray-900">Security Admin</h1>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
+          <button 
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden"
+            className="md:hidden"
           >
             <X className="h-5 w-5" />
-          </Button>
+          </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-2">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            
-            return (
-              <Button
-                key={item.id}
-                variant={isActive ? "default" : "ghost"}
-                onClick={() => handleTabChange(item.id)}
-                className={`w-full justify-start gap-3 ${
-                  isActive 
-                    ? 'bg-amber-100 text-amber-900 hover:bg-amber-200' 
-                    : 'text-gray-700 hover:bg-gray-100'
+        <nav className="flex-1 mt-6 px-2">
+          <div className="space-y-1">
+            {navigation.map((item) => (
+              <button
+                key={item.name}
+                className={`w-full group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  item.active
+                    ? `bg-${item.color}-100 text-${item.color}-900`
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Button>
-            );
-          })}
+                <item.icon className={`mr-3 h-5 w-5 ${item.active ? `text-${item.color}-600` : ''}`} />
+                {item.name}
+                {item.active && <ChevronRight className="ml-auto h-4 w-4" />}
+              </button>
+            ))}
+          </div>
         </nav>
 
-        {/* Sidebar Footer */}
-        <div className="p-4 border-t border-gray-200">
-          <Button
-            variant="ghost"
-            onClick={onLogout}
-            className="w-full justify-start gap-3 text-gray-700 hover:bg-gray-100"
-          >
-            <LogOut className="h-4 w-4" />
-            Logout
-          </Button>
+        <div className="border-t border-gray-200">
+          <SystemStatus />
+        </div>
+        
+        <div className="flex-shrink-0 border-t border-gray-200 p-4">
+          <button className="flex-shrink-0 w-full group block">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="h-10 w-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                  A
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-700">Admin User</p>
+                  <p className="text-xs text-gray-500">System Administrator</p>
+                </div>
+              </div>
+              <LogOut className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-pointer" />
+            </div>
+          </button>
         </div>
       </div>
+    </div>
+  );
 
-      {/* Main Content */}
-      <div className="flex-1 lg:ml-0">
-        {/* Top Header */}
-        <header className="bg-white shadow-sm border-b border-gray-200">
-          <div className="flex items-center justify-between px-6 py-4">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden"
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-              
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900 capitalize">
-                  {navigationItems.find(item => item.id === activeTab)?.label || 'Admin Dashboard'}
-                </h2>
-                <p className="text-sm text-gray-500">
-                  {new Date().toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}
-                </p>
-              </div>
+  return (
+    <div className="min-h-screen bg-gray-50 md:flex">
+      <NavigationMenu />
+      
+      {/* Overlay for mobile */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <div className="flex-1 md:ml-0">
+        {/* Mobile Header */}
+        <header className="bg-white shadow-sm border-b border-gray-200 md:hidden">
+          <div className="px-4 py-4 flex items-center justify-between">
+            <button onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-6 w-6" />
+            </button>
+            <div className="flex items-center">
+              <Shield className="h-6 w-6 text-blue-600 mr-2" />
+              <span className="font-bold">Admin</span>
             </div>
+            <div className="relative">
+              <Bell className="h-6 w-6 text-gray-400" />
+              {activeAlerts > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {activeAlerts}
+                </span>
+              )}
+            </div>
+          </div>
+        </header>
 
-            <div className="flex items-center gap-4">
-              {/* Admin Profile */}
-              <div className="flex items-center gap-3">
+        {/* Desktop Header */}
+        <header className="hidden md:block bg-white shadow-sm border-b border-gray-200">
+          <div className="px-6 py-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+                <p className="text-gray-600 mt-1">Security Management Center</p>
+              </div>
+              
+              <div className="flex items-center space-x-4">
                 <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900">
-                    {adminData?.name || adminData?.username || 'Admin'}
+                  <p className="text-lg font-semibold text-gray-900">
+                    {currentTime.toLocaleTimeString()}
                   </p>
-                  <Badge className="bg-amber-100 text-amber-800 text-xs">
-                    ADMIN
-                  </Badge>
+                  <p className="text-sm text-gray-600">
+                    {currentTime.toLocaleDateString()}
+                  </p>
                 </div>
-                <div className="h-8 w-8 bg-amber-100 rounded-full flex items-center justify-center">
-                  <User className="h-4 w-4 text-amber-600" />
+                
+                <div className="relative">
+                  <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search guards, checkpoints..."
+                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent w-64"
+                  />
+                </div>
+                
+                <button
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <RefreshCw className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
+                </button>
+                
+                <div className="relative">
+                  <Bell className="h-6 w-6 text-gray-400 hover:text-gray-600 cursor-pointer transition-colors" />
+                  {activeAlerts > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                      {activeAlerts}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         </header>
 
-        {/* Content Area */}
-        <main className="p-6">
-          {/* Loading State */}
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-8 w-8 animate-spin text-amber-600 mr-3" />
-              <span className="text-lg text-gray-600">Loading admin dashboard...</span>
-            </div>
-          )}
-
-          {/* Error State */}
-          {error && (
-            <Alert variant="destructive" className="mb-6">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription className="flex items-center justify-between">
-                <span>{error}</span>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => window.location.reload()}
-                  className="ml-4"
+        <main className="p-4 md:p-6">
+          {/* Time Range Filter */}
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <Filter className="h-4 w-4 text-gray-500" />
+                <select
+                  value={selectedTimeRange}
+                  onChange={(e) => setSelectedTimeRange(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500"
                 >
-                  <RefreshCw className="h-4 w-4 mr-1" />
-                  Retry
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
+                  <option value="today">Today</option>
+                  <option value="week">This Week</option>
+                  <option value="month">This Month</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                isOnline ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+              }`}>
+                <div className={`w-2 h-2 rounded-full mr-1 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                {isOnline ? 'System Online' : 'System Offline'}
+              </span>
+            </div>
+          </div>
 
-          {/* Tab Content */}
-          {!loading && !error && renderActiveTab()}
+          {/* Enhanced Metrics Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
+            <MetricCard
+              title="Total Guards"
+              value={metrics.totalGuards}
+              subtitle={`${metrics.activeGuards} active, ${metrics.onBreakGuards} on break`}
+              icon={Users}
+              color="blue"
+              trend={5.2}
+              onClick={() => console.log('Navigate to guards')}
+              loading={refreshing}
+            />
+            <MetricCard
+              title="Active Patrols"
+              value={metrics.activePatrols}
+              subtitle={`${metrics.overduePatrols} overdue, ${metrics.completedPatrols} completed`}
+              icon={Shield}
+              color="green"
+              trend={-2.1}
+              onClick={() => console.log('Navigate to patrols')}
+              loading={refreshing}
+            />
+            <MetricCard
+              title="Attendance Rate"
+              value={`${metrics.attendanceRate}%`}
+              subtitle="Above target (90%)"
+              icon={Clock}
+              color="purple"
+              trend={2.1}
+              onClick={() => console.log('Navigate to attendance')}
+              loading={refreshing}
+            />
+            <MetricCard
+              title="Response Time"
+              value={metrics.avgResponseTime}
+              subtitle="Average response"
+              icon={Timer}
+              color="indigo"
+              trend={-15.3}
+              onClick={() => console.log('View response metrics')}
+              loading={refreshing}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            {/* Enhanced Quick Actions */}
+            <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
+                <Plus className="h-5 w-5 text-gray-400" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <QuickActionButton
+                  title="Add Guard"
+                  icon={Plus}
+                  onClick={() => console.log('Add guard')}
+                  color="blue"
+                />
+                <QuickActionButton
+                  title="New Route"
+                  icon={Navigation}
+                  color="green"
+                  onClick={() => console.log('New patrol route')}
+                />
+                <QuickActionButton
+                  title="Live View"
+                  icon={Eye}
+                  color="purple"
+                  onClick={() => console.log('Live monitoring')}
+                />
+                <QuickActionButton
+                  title="Export Data"
+                  icon={Download}
+                  color="orange"
+                  onClick={() => console.log('Export reports')}
+                />
+              </div>
+            </div>
+
+            {/* Enhanced Critical Alerts */}
+            <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Critical Alerts</h3>
+                <div className="flex items-center space-x-2">
+                  <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full font-medium">
+                    {overduePatrols.length} Critical
+                  </span>
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                </div>
+              </div>
+              
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {overduePatrols.map((patrol, index) => (
+                  <div key={index} className={`p-3 rounded-lg border-l-4 ${
+                    patrol.severity === 'high' ? 'bg-red-50 border-red-500' : 'bg-yellow-50 border-yellow-500'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={`font-medium ${patrol.severity === 'high' ? 'text-red-900' : 'text-yellow-900'}`}>
+                          {patrol.guard}
+                        </p>
+                        <p className={`text-sm ${patrol.severity === 'high' ? 'text-red-700' : 'text-yellow-700'}`}>
+                          {patrol.checkpoint}
+                        </p>
+                        <p className="text-xs text-gray-500">Last seen: {patrol.lastSeen}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-bold ${patrol.severity === 'high' ? 'text-red-900' : 'text-yellow-900'}`}>
+                          {patrol.overdue}
+                        </p>
+                        <p className={`text-xs ${patrol.severity === 'high' ? 'text-red-600' : 'text-yellow-600'}`}>
+                          overdue
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-3 flex space-x-2">
+                      <button className="flex-1 px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors">
+                        Contact Guard
+                      </button>
+                      <button className="flex-1 px-3 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700 transition-colors">
+                        Send Backup
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Active Guards Status */}
+            <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Active Guards</h3>
+                <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
+                  {metrics.activeGuards} Online
+                </span>
+              </div>
+              
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {activeGuardsList.map((guard, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center">
+                      <div className={`w-3 h-3 rounded-full mr-3 ${
+                        guard.status === 'patrolling' ? 'bg-green-500 animate-pulse' : 
+                        guard.status === 'stationed' ? 'bg-blue-500' : 'bg-yellow-500'
+                      }`}></div>
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">{guard.name}</p>
+                        <p className="text-xs text-gray-600">{guard.location}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          guard.status === 'patrolling' ? 'bg-green-100 text-green-800' :
+                          guard.status === 'stationed' ? 'bg-blue-100 text-blue-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {guard.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Battery: {guard.battery}%
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                
+                <button className="w-full mt-3 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm">
+                  View All Guards
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Enhanced Recent Activity */}
+          <div className="bg-white rounded-lg shadow border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Real-time Activity Feed</h3>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm text-green-600 font-medium">Live</span>
+                  <button className="text-blue-600 hover:text-blue-800 text-sm font-medium ml-4">
+                    View All
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+              {recentActivity.map((activity) => (
+                <ActivityItem key={activity.id} activity={activity} />
+              ))}
+            </div>
+          </div>
         </main>
       </div>
-
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
     </div>
   );
 };

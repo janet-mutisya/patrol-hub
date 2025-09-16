@@ -1,237 +1,209 @@
+// src/components/Navbar.jsx
 import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-import {
-  MapPin,
-  ClipboardList,
-  FileBarChart,
-  Users,
-  Bell,
-  Settings,
-  User,
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { 
+  Menu, 
+  Bell, 
+  Search, 
+  Sun, 
+  Moon, 
+  User, 
+  Settings, 
   LogOut,
-  Menu,
   Shield,
-  ChevronDown,
-  Activity
+  ChevronDown
 } from 'lucide-react';
 
-// Role-based navigation items
-const getNavigationItems = (userRole) => {
-  const baseItems = [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: Activity,
-      href: '/dashboard',
-      description: 'Overview and analytics',
-      roles: ['admin', 'supervisor', 'guard']
-    },
-    {
-      id: 'patrols',
-      label: 'Patrol Logs',
-      icon: ClipboardList,
-      href: '/patrol-logs',
-      description: 'View and manage patrol activities',
-      roles: ['admin', 'supervisor', 'guard']
-    }
-  ];
+const Navbar = ({ onMenuClick }) => {
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const { theme, toggleLightDark, isDark } = useTheme();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
 
-  const adminItems = [
-    {
-      id: 'checkpoints',
-      label: 'Checkpoints',
-      icon: MapPin,
-      href: '/checkpoints',
-      description: 'Manage security checkpoints',
-      roles: ['admin', 'supervisor']
-    },
-    {
-      id: 'reports',
-      label: 'Reports',
-      icon: FileBarChart,
-      href: '/reports',
-      description: 'Generate and view reports',
-      roles: ['admin', 'supervisor']
-    },
-    {
-      id: 'users',
-      label: 'Users',
-      icon: Users,
-      href: '/users',
-      description: 'Manage system users',
-      roles: ['admin']
-    }
-  ];
-
-  const allItems = [...baseItems, ...adminItems];
-  return allItems.filter(item => item.roles.includes(userRole));
-};
-
-const Navbar = ({ activeTab, setActiveTab, user, logout }) => {
-  const [unreadCount] = useState(0); // You can connect this to real notifications later
-
-  const navigationItems = user ? getNavigationItems(user.role) : [];
-
-  const handleNavClick = (itemId) => {
-    setActiveTab(itemId);
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
   };
 
+  const notifications = [
+    { id: 1, message: "New incident report submitted", time: "5 min ago", unread: true },
+    { id: 2, message: "Shift change reminder", time: "15 min ago", unread: true },
+    { id: 3, message: "Security alert cleared", time: "1 hour ago", unread: false }
+  ];
+
+  const unreadCount = notifications.filter(n => n.unread).length;
+
   return (
-    <nav className="bg-white border-b border-gray-200 px-4 py-3">
-      <div className="flex items-center justify-between max-w-7xl mx-auto">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Shield className="h-8 w-8 text-blue-600" />
-            <div className="hidden sm:block">
-              <h1 className="text-xl font-bold text-gray-900">SecureWatch</h1>
-              <p className="text-xs text-gray-500">Security Management</p>
+    <nav className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+      <div className="px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          
+          {/* Left Section - Menu Button & Search */}
+          <div className="flex items-center space-x-4">
+            {/* Mobile menu button */}
+            <button
+              onClick={onMenuClick}
+              className="lg:hidden p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Open sidebar"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            {/* Search Bar */}
+            <div className="hidden md:block relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-gray-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search..."
+                className="block w-64 pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Center Section - Logo (only on mobile when sidebar is closed) */}
+          <div className="lg:hidden flex items-center">
+            <Link to={user?.role === 'admin' ? '/admin' : '/guard'} className="flex items-center space-x-2">
+              <Shield className="w-6 h-6 text-blue-600" />
+              <span className="text-lg font-bold text-gray-900 dark:text-white">SecurityHub</span>
+            </Link>
+          </div>
+
+          {/* Right Section - Theme, Notifications, User Menu */}
+          <div className="flex items-center space-x-3">
+            
+            {/* Theme Toggle */}
+            <button
+              onClick={toggleLightDark}
+              className="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+
+            {/* Notifications */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
+                aria-label="Notifications"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Notifications Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                  <div className="py-1">
+                    <div className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700">
+                      Notifications
+                    </div>
+                    {notifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        className={`px-4 py-3 text-sm border-b border-gray-100 dark:border-gray-700 last:border-b-0 ${
+                          notification.unread ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                        }`}
+                      >
+                        <p className="text-gray-900 dark:text-white">{notification.message}</p>
+                        <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{notification.time}</p>
+                      </div>
+                    ))}
+                    <div className="px-4 py-2 text-center">
+                      <button className="text-blue-600 dark:text-blue-400 text-sm hover:text-blue-800 dark:hover:text-blue-200">
+                        View all notifications
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* User Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center space-x-2 p-2 rounded-md text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                  <span className="text-sm font-medium text-white">
+                    {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+                  </span>
+                </div>
+                <div className="hidden md:block text-left">
+                  <p className="text-sm font-medium">{user?.name || 'User'}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user?.role || 'Role'}</p>
+                </div>
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              </button>
+
+              {/* User Dropdown Menu */}
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                  <div className="py-1">
+                    <div className="px-4 py-2 text-sm text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700">
+                      <p className="font-medium">{user?.name || 'User'}</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-xs">{user?.email}</p>
+                    </div>
+                    
+                    <Link
+                      to={user?.role === 'admin' ? '/admin/settings' : '/guard/profile'}
+                      className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => setShowUserMenu(false)}
+                    >
+                      <User className="mr-3 h-4 w-4" />
+                      Profile
+                    </Link>
+                    
+                    <Link
+                      to={user?.role === 'admin' ? '/admin/settings' : '/guard/profile'}
+                      className="flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => setShowUserMenu(false)}
+                    >
+                      <Settings className="mr-3 h-4 w-4" />
+                      Settings
+                    </Link>
+                    
+                    <hr className="my-1 border-gray-200 dark:border-gray-700" />
+                    
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        handleLogout();
+                      }}
+                      className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <LogOut className="mr-3 h-4 w-4" />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Desktop Navigation */}
-        <div className="hidden md:flex items-center space-x-1">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            
-            return (
-              <Button
-                key={item.id}
-                variant={isActive ? "default" : "ghost"}
-                className={`flex items-center space-x-2 px-3 py-2 ${
-                  isActive ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
-                }`}
-                onClick={() => handleNavClick(item.id)}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
-              </Button>
-            );
-          })}
-        </div>
-
-        {/* User Actions */}
-        <div className="flex items-center space-x-3">
-          {/* Notifications */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="relative">
-                <Bell className="h-5 w-5" />
-                {unreadCount > 0 && (
-                  <Badge 
-                    variant="destructive" 
-                    className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs"
-                  >
-                    {unreadCount}
-                  </Badge>
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="p-3 text-gray-500">
-                No new notifications
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* User Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                  <User className="h-4 w-4 text-white" />
-                </div>
-                <div className="hidden sm:block text-left">
-                  <p className="text-sm font-medium">{user?.name || 'User'}</p>
-                  <p className="text-xs text-gray-500">{user?.email}</p>
-                </div>
-                <ChevronDown className="h-4 w-4 text-gray-500" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>
-                My Account
-                <div className="text-xs text-gray-500 font-normal">
-                  Role: {user?.role?.charAt(0).toUpperCase() + user?.role?.slice(1)}
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="cursor-pointer">
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem className="cursor-pointer">
-                <Settings className="mr-2 h-4 w-4" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="cursor-pointer text-red-600" onClick={logout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Mobile Menu */}
-          <div className="md:hidden">
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-80">
-                <SheetHeader>
-                  <SheetTitle className="flex items-center space-x-2">
-                    <Shield className="h-6 w-6 text-blue-600" />
-                    <span>SecureWatch</span>
-                  </SheetTitle>
-                </SheetHeader>
-                <div className="mt-6 space-y-2">
-                  {navigationItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = activeTab === item.id;
-                    
-                    return (
-                      <Button
-                        key={item.id}
-                        variant={isActive ? "default" : "ghost"}
-                        className={`w-full justify-start space-x-3 ${
-                          isActive ? 'bg-blue-600 text-white' : 'text-gray-600'
-                        }`}
-                        onClick={() => handleNavClick(item.id)}
-                      >
-                        <Icon className="h-4 w-4" />
-                        <div className="text-left">
-                          <div>{item.label}</div>
-                          <div className="text-xs opacity-70">{item.description}</div>
-                        </div>
-                      </Button>
-                    );
-                  })}
-                </div>
-              </SheetContent>
-            </Sheet>
+      {/* Mobile Search */}
+      <div className="md:hidden px-4 pb-2">
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Search className="h-4 w-4 text-gray-400" />
           </div>
+          <input
+            type="text"
+            placeholder="Search..."
+            className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
+          />
         </div>
       </div>
     </nav>

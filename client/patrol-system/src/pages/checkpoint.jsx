@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,15 @@ import { Plus, Search, MapPin, Edit, Trash2, Eye, MoreHorizontal, Filter, Loader
 
 // Backend configuration
 const BASE_URL = 'http://localhost:5000';
+
+// Simple JWT decode (no external lib)
+function decodeToken(token) {
+  try {
+    return JSON.parse(atob(token.split(".")[1]));
+  } catch {
+    return null;
+  }
+}
 
 const CheckpointDashboard = () => {
   const [checkpoints, setCheckpoints] = useState([]);
@@ -56,112 +65,78 @@ const CheckpointDashboard = () => {
       setCurrentPage(Math.max(1, totalPages));
     }
   }, [totalPages, currentPage]);
-  
-  const fetchCheckpoints = useCallback(async () => {
-  try {
-    setLoading(true);
-    setError('');
-    const token = localStorage.getItem('token');
+
+  // Fetch checkpoints function with proper auth
+  const fetchCheckpoints = async () => {
+    // Get auth data from localStorage inside the function
+    const token = localStorage.getItem("token");
+    const role = localStorage.getItem("userRole") || "admin";
+    const userId = parseInt(localStorage.getItem("userId"), 10);
 
     if (!token) {
-      throw new Error('No authentication token found. Please log in.');
+      setError("Authentication token not found");
+      setLoading(false);
+      return;
     }
 
-    console.log('Fetching checkpoints as:', userRole);
-    console.log('Token:', token);
+    setLoading(true);
+    setError("");
 
-    let response;
-
-    if (userRole === 'guard') {
-      response = await fetch(`${BASE_URL}/api/checkpoints/guard/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-    } else {
-      // For admin users, use the correct endpoint
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: '10',
-        ...(searchTerm && { search: searchTerm }),
-        ...(statusFilter !== 'all' && { status: statusFilter }),
-        sortBy: 'createdAt',
-        sortOrder: 'DESC'
-      });
+    try {
+      let url = "";
       
-      // Use the correct route that exists in your backend
-      response = await fetch(`${BASE_URL}/api/checkpoints?${params.toString()}`, {
+      if (role === "admin") {
+        const params = new URLSearchParams({
+          page: currentPage.toString(),
+          limit: "10",
+          search: searchTerm,
+          status: statusFilter === "all" ? "" : statusFilter,
+        });
+        url = `${BASE_URL}/api/checkpoints?${params.toString()}`;
+      } else if (role === "guard" && userId) {
+        url = `${BASE_URL}/api/checkpoints/guard/${userId}`;
+      } else {
+        // Fallback for other roles
+        url = `${BASE_URL}/api/checkpoints`;
+      }
+
+      const res = await fetch(url, {
         headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
       });
-    }
 
-    if (response.ok) {
-      const data = await response.json();
-      if (userRole === 'guard') {
-        setCheckpoints(data.data.checkpoint ? [data.data.checkpoint] : []);
-        setTotalPages(1);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: "Failed to fetch checkpoints" }));
+        throw new Error(errorData.message || `HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+
+      if (role === "admin") {
+        // Admin gets paginated response
+        setCheckpoints(data.data?.checkpoints || data.checkpoints || []);
+        setTotalPages(data.data?.pagination?.totalPages || data.totalPages || 1);
       } else {
-        setCheckpoints(data.data.checkpoints || []);
-        setTotalPages(data.data.pagination?.totalPages || 1);
+        // Guard gets direct array or single checkpoint
+        const checkpointData = Array.isArray(data) ? data : [data];
+        setCheckpoints(checkpointData.filter(Boolean)); // Filter out null/undefined
+        setTotalPages(1); // Guards typically don't need pagination
       }
-    } else if (response.status === 401) {
-      // Unauthorized
-      throw new Error('Unauthorized. Please log in again.');
-    } else if (response.status === 404 && userRole === 'guard') {
-      setCheckpoints([]);
-      setTotalPages(1);
-    } else {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Failed to fetch checkpoints: ${response.status}`);
+    } catch (err) {
+      console.error("Failed to fetch checkpoints:", err);
+      setError(err.message || "Failed to fetch checkpoints");
+      setCheckpoints([]); // Show empty table on error
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Failed to fetch checkpoints:', error);
-    console.log('Backend route not implemented. Using demo data.');
-    
-    // Clear the error message and show demo data instead
-    setError('');
+  };
 
-    // Demo fallback
-    setCheckpoints([
-      {
-        id: 1,
-        name: 'Main Entrance',
-        location: 'Building A, Ground Floor',
-        description: 'Primary security checkpoint',
-        isActive: true,
-        coordinates: { latitude: -1.2921, longitude: 36.8219 },
-        creator: { name: 'Admin User' },
-        createdAt: new Date().toISOString()
-      },
-      {
-        id: 2,
-        name: 'Parking Gate',
-        location: 'Parking Lot B',
-        description: 'Vehicle checkpoint',
-        isActive: false,
-        coordinates: null,
-        creator: { name: 'Security Manager' },
-        createdAt: new Date().toISOString()
-      },
-      {
-        id: 3,
-        name: 'Side Gate',
-        location: 'Building C, East Side',
-        description: 'Secondary access point',
-        isActive: true,
-        coordinates: { latitude: -1.2925, longitude: 36.8215 },
-        creator: { name: 'Security Admin' },
-        createdAt: new Date().toISOString()
-      }
-    ]);
-    setTotalPages(1);
-  } finally {
-    setLoading(false);
-  }
-}, [currentPage, searchTerm, statusFilter, userRole, userId]);
+  // Update the useEffect to be dependency-aware
   useEffect(() => {
     fetchCheckpoints();
-  }, [fetchCheckpoints]);
+  }, [currentPage, searchTerm, statusFilter]); // Dependencies that should trigger refetch
 
   // Validation function
   const validateForm = () => {
@@ -971,4 +946,4 @@ const CheckpointDashboard = () => {
   );
 };
 
-export default CheckpointDashboard;
+export default CheckpointDashboard; 

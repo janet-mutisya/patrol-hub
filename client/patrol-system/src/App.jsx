@@ -1,5 +1,4 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import DashboardWrapper from "@/pages/DashboardWrapper";
 import CheckpointPage from "@/pages/checkpoint";
 import PatrolLogPage from "@/pages/patrolLog";
 import ReportPage from "@/pages/Report";
@@ -11,14 +10,14 @@ import GuardDashboard from "@/pages/GuardDashboard";
 import Signup from "@/pages/Signup";
 import Login from "@/pages/Login";
 
-// Fixed auth helper - now correctly reads the stored user data
+// Fixed auth helper - reads user data from localStorage
 const useAuth = () => {
   const storedUser = localStorage.getItem("user");
   const user = storedUser ? JSON.parse(storedUser) : {};
-  
+
   return {
     user: {
-      role: user.role || null, // Now correctly reads from the stored user object
+      role: user.role || null,
       token: localStorage.getItem("token") || null,
     },
   };
@@ -46,100 +45,106 @@ function App() {
       <Route path="/" element={<Signup />} />
       <Route path="/login" element={<Login />} />
 
-      {/* Protected area */}
-      <Route element={<DashboardWrapper />}>
-        {/* Admin routes */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute allowedRoles={["admin"]}>
-              <AdminDashboard 
-                authToken={localStorage.getItem("token")} 
-                userRole="admin" 
-              />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/user"
-          element={
-            <ProtectedRoute allowedRoles={["admin"]}>
-              <UserPage 
-                authToken={localStorage.getItem("token")} 
-                userRole="admin" 
-              />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/shift"
-          element={
-            <ProtectedRoute allowedRoles={["admin"]}>
-              <ShiftPage 
-                authToken={localStorage.getItem("token")} 
-                userRole="admin" 
-              />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/attendance"
-          element={
-            <ProtectedRoute allowedRoles={["admin"]}>
-              <AttendancePage 
-                authToken={localStorage.getItem("token")} 
-                userRole="admin" 
-              />
-            </ProtectedRoute>
-          }
-        />
+      {/* Admin routes */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <AdminDashboard
+              authToken={localStorage.getItem("token")}
+              userRole="admin"
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/user"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <UserPage
+              authToken={localStorage.getItem("token")}
+              userRole="admin"
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/shift"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <ShiftPage
+              authToken={localStorage.getItem("token")}
+              userRole="admin"
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/attendance"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <AttendancePage
+              authToken={localStorage.getItem("token")}
+              userRole="admin"
+            />
+          </ProtectedRoute>
+        }
+      />
 
-        {/* Guard routes */}
-        <Route
-          path="/guard"
-          element={
-            <ProtectedRoute allowedRoles={["guard"]}>
-              <GuardDashboard 
-                authToken={localStorage.getItem("token")} 
-                userRole="guard" 
-              />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/checkpoint"
-          element={
-            <ProtectedRoute allowedRoles={["guard", "admin"]}>
-              <CheckpointPage 
-                authToken={localStorage.getItem("token")} 
-                userRole={JSON.parse(localStorage.getItem("user") || "{}")?.role} 
-              />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/patrolLog"
-          element={
-            <ProtectedRoute allowedRoles={["guard", "admin"]}>
-              <PatrolLogPage 
-                authToken={localStorage.getItem("token")} 
-                userRole={JSON.parse(localStorage.getItem("user") || "{}")?.role} 
-              />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <ProtectedRoute allowedRoles={["guard", "admin"]}>
-              <ReportPage 
-                authToken={localStorage.getItem("token")} 
-                userRole={JSON.parse(localStorage.getItem("user") || "{}")?.role} 
-              />
-            </ProtectedRoute>
-          }
-        />
-      </Route>
+      {/* Guard routes */}
+      <Route
+        path="/guard"
+        element={
+          <ProtectedRoute allowedRoles={["guard"]}>
+            <GuardDashboard
+              authToken={localStorage.getItem("token")}
+              userRole="guard"
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/checkpoint"
+        element={
+          <ProtectedRoute allowedRoles={["guard", "admin"]}>
+            <CheckpointPage
+              authToken={localStorage.getItem("token")}
+              userRole={
+                JSON.parse(localStorage.getItem("user") || "{}")?.role
+              }
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/patrolLog"
+        element={
+          <ProtectedRoute allowedRoles={["guard", "admin"]}>
+            <PatrolLogPage
+              authToken={localStorage.getItem("token")}
+              userRole={
+                JSON.parse(localStorage.getItem("user") || "{}")?.role
+              }
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute allowedRoles={["guard", "admin"]}>
+            <ReportPage
+              authToken={localStorage.getItem("token")}
+              userRole={
+                JSON.parse(localStorage.getItem("user") || "{}")?.role
+              }
+            />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 }
