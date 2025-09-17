@@ -60,91 +60,103 @@ const ReportsPage = ({ userRole = 'admin', authToken = 'your-jwt-token-here' }) 
     
     return response.json();
   };
+  // ====================
+// Admin API calls
+// ====================
+const fetchCheckpointReport = async () => {
+  try {
+    const data = await makeApiCall(`/api/reports/checkpoints?date=${selectedDate}&shift=${selectedShift}`);
+    setCheckpointReport(Array.isArray(data) ? data : []);  // ✅ always array
+  } catch (error) {
+    console.error("Error fetching checkpoint report:", error);
+    setCheckpointReport([]); // ✅ prevent crash
+  }
+};
 
-  // Admin API calls
-  const fetchCheckpointReport = async () => {
-    try {
-      const data = await makeApiCall(`/api/reports/checkpoints?date=${selectedDate}&shift=${selectedShift}`);
-      setCheckpointReport(data);
-    } catch (error) {
-      console.error("Error fetching checkpoint report:", error);
-      throw error;
+const fetchGuardReport = async () => {
+  try {
+    const data = await makeApiCall(`/api/reports/guards?date=${selectedDate}&shift=${selectedShift}`);
+    setGuardReport(Array.isArray(data) ? data : []); // ✅ always array
+  } catch (error) {
+    console.error("Error fetching guard report:", error);
+    setGuardReport([]); // ✅ prevent crash
+  }
+};
+
+// ====================
+// Guard API calls
+// ====================
+const fetchMyPerformanceReport = async () => {
+  try {
+    const data = await makeApiCall(`/api/reports/my-performance?date=${selectedDate}&shift=${selectedShift}`);
+    setMyPerformanceReport(Array.isArray(data) ? data : []); // ✅ always array
+  } catch (error) {
+    console.error("Error fetching my performance report:", error);
+    setMyPerformanceReport([]); // ✅ prevent crash
+  }
+};
+
+// ====================
+// Shared API calls
+// ====================
+const fetchSummaryReport = async () => {
+  try {
+    const data = await makeApiCall(`/api/reports/summary?date=${selectedDate}&shift=${selectedShift}`);
+    setSummaryReport(Array.isArray(data) ? data : []); // ✅ always array
+  } catch (error) {
+    console.error("Error fetching summary report:", error);
+    setSummaryReport([]); // ✅ prevent crash
+  }
+};
+
+const fetchMissedVisits = async () => {
+  try {
+    const data = await makeApiCall(`/api/reports/missed-visits?date=${selectedDate}&shift=${selectedShift}`);
+    setMissedVisits(Array.isArray(data) ? data : []); // ✅ always array
+  } catch (error) {
+    console.error("Error fetching missed visits:", error);
+    setMissedVisits([]); // ✅ prevent crash
+  }
+};
+
+// ====================
+// Fetch all reports together
+// ====================
+const fetchAllReports = async () => {
+  setLoading(true);
+  setError(null);
+
+  try {
+    const promises = [fetchSummaryReport(), fetchMissedVisits()];
+
+    if (isAdmin) {
+      promises.push(fetchCheckpointReport(), fetchGuardReport());
+    } else if (isGuard) {
+      promises.push(fetchMyPerformanceReport());
     }
-  };
 
-  const fetchGuardReport = async () => {
-    try {
-      const data = await makeApiCall(`/api/reports/guards?date=${selectedDate}&shift=${selectedShift}`);
-      setGuardReport(data);
-    } catch (error) {
-      console.error("Error fetching guard report:", error);
-      throw error;
-    }
-  };
+    await Promise.all(promises);
+  } catch (error) {
+    console.error("Error loading reports:", error);
+    setError(`Failed to load reports: ${error.message || error}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  // Guard API calls
-  const fetchMyPerformanceReport = async () => {
-    try {
-      const data = await makeApiCall(`/api/reports/my-performance?date=${selectedDate}&shift=${selectedShift}`);
-      setMyPerformanceReport(data);
-    } catch (error) {
-      console.error("Error fetching my performance report:", error);
-      throw error;
-    }
-  };
+// ====================
+// Export reports
+// ====================
+const handleExport = (format) => {
+  if (!isAdmin) return;
 
-  // Shared API calls
-  const fetchSummaryReport = async () => {
-    try {
-      const data = await makeApiCall(`/api/reports/summary?date=${selectedDate}&shift=${selectedShift}`);
-      setSummaryReport(data);
-    } catch (error) {
-      console.error("Error fetching summary report:", error);
-      throw error;
-    }
-  };
+  const params = new URLSearchParams({
+    date: selectedDate,
+    shift: selectedShift
+  });
 
-  const fetchMissedVisits = async () => {
-    try {
-      const data = await makeApiCall(`/api/reports/missed-visits?date=${selectedDate}&shift=${selectedShift}`);
-      setMissedVisits(data);
-    } catch (error) {
-      console.error("Error fetching missed visits:", error);
-      throw error;
-    }
-  };
-
-  const fetchAllReports = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const promises = [fetchSummaryReport(), fetchMissedVisits()];
-      
-      if (isAdmin) {
-        promises.push(fetchCheckpointReport(), fetchGuardReport());
-      } else if (isGuard) {
-        promises.push(fetchMyPerformanceReport());
-      }
-      
-      await Promise.all(promises);
-    } catch (error) {
-      setError(`Failed to load reports: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExport = (format) => {
-    if (!isAdmin) return;
-    
-    const params = new URLSearchParams({ 
-      date: selectedDate, 
-      shift: selectedShift 
-    });
-    window.open(`/api/reports/export/${format}?${params}`, '_blank');
-  };
-
+  window.open(`/api/reports/export/${format}?${params}`, '_blank');
+};
   useEffect(() => {
     fetchAllReports();
   }, [selectedDate, selectedShift, userRole, authToken]);
@@ -172,16 +184,18 @@ const ReportsPage = ({ userRole = 'admin', authToken = 'your-jwt-token-here' }) 
 
   // Memoized performance calculations for admin
   const performanceStats = useMemo(() => {
-    if (!isAdmin || checkpointReport.length === 0) return { excellent: 0, good: 0, needsAttention: 0 };
-    
-    return checkpointReport.reduce((stats, item) => {
-      const rate = getCompletionRate(item.completed, item.expected);
-      if (rate >= 95) stats.excellent++;
-      else if (rate >= 80) stats.good++;
-      else stats.needsAttention++;
-      return stats;
-    }, { excellent: 0, good: 0, needsAttention: 0 });
-  }, [checkpointReport, isAdmin]);
+  if (!isAdmin || !Array.isArray(checkpointReport) || checkpointReport.length === 0) {
+    return { excellent: 0, good: 0, needsAttention: 0 };
+  }
+
+  return checkpointReport.reduce((stats, item) => {
+    const rate = getCompletionRate(item.completed, item.expected);
+    if (rate >= 95) stats.excellent++;
+    else if (rate >= 80) stats.good++;
+    else stats.needsAttention++;
+    return stats;
+  }, { excellent: 0, good: 0, needsAttention: 0 });
+}, [checkpointReport, isAdmin]);
 
   return (
     <div className="p-6 space-y-6">

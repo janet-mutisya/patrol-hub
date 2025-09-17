@@ -1,6 +1,12 @@
+// src/lib/api.js
 
-const API_BASE_URL = "http://localhost:5000/api"
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? "https://your-backend-domain.com/api"  // Replace with your actual backend URL
+  : "http://localhost:5000/api";
 
+// ================================
+// Token Manager
+// ================================
 const TokenManager = {
   get: () => localStorage.getItem("token"),
   set: (token, refreshToken) => {
@@ -15,6 +21,9 @@ const TokenManager = {
   getRefresh: () => localStorage.getItem("refreshToken"),
 };
 
+// ================================
+// Token Refresh Queue
+// ================================
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -23,24 +32,35 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-/**
- * Low-level apiCall that handles:
- * - Authorization header from TokenManager
- * - JSON body handling
- * - 401 token refresh with queueing
- * - Returns parsed JSON or throws Error with status and data
- */
+// ================================
+// Safe JSON parser
+// ================================
+const safeParseJSON = async (response) => {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+// ================================
+// Core API Caller
+// ================================
 export const apiCall = async (endpoint, options = {}) => {
-  const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  const url = endpoint.startsWith("http")
+    ? endpoint
+    : `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
   const token = TokenManager.get();
 
   const config = {
     method: options.method || "GET",
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {})
+      ...(options.headers || {}),
     },
-    // body will be set below if present
   };
 
   if (token) {
@@ -48,8 +68,10 @@ export const apiCall = async (endpoint, options = {}) => {
   }
 
   if (options.body !== undefined) {
-    // allow sending already-stringified bodies (e.g. FormData or text)
-    config.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+    config.body =
+      typeof options.body === "string"
+        ? options.body
+        : JSON.stringify(options.body);
   }
 
   let response;
@@ -57,33 +79,23 @@ export const apiCall = async (endpoint, options = {}) => {
     response = await fetch(url, config);
   } catch (fetchError) {
     console.error(`Network error for ${url}:`, fetchError);
-    throw new Error(`Network error: Unable to reach server. Please check your connection.`);
+    throw new Error("Network error: Unable to reach server. Please check your connection.");
   }
 
-  // Handle 401 and attempt token refresh
+  // ================================
+  // Handle 401 → refresh token
+  // ================================
   if (response.status === 401 && token && !endpoint.includes("/auth/")) {
-    // queue while refreshing
     if (isRefreshing) {
       return new Promise((resolve, reject) =>
         failedQueue.push({ resolve, reject })
-      ).then(newToken => {
-        // retry the original request with new token
+      ).then((newToken) => {
         config.headers["Authorization"] = `Bearer ${newToken}`;
-        return fetch(url, config).then(async (res) => {
-          if (!res.ok) {
-            const errorData = await safeParseJSON(res).catch(() => ({}));
-            const err = new Error(errorData.message || `HTTP ${res.status}`);
-            err.status = res.status;
-            err.data = errorData;
-            throw err;
-          }
-          return safeParseJSON(res);
-        });
+        return fetch(url, config).then(safeParseJSON);
       });
     }
 
     isRefreshing = true;
-
     try {
       const refreshToken = TokenManager.getRefresh();
       if (!refreshToken) {
@@ -96,19 +108,19 @@ export const apiCall = async (endpoint, options = {}) => {
       const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken })
+        body: JSON.stringify({ refreshToken }),
       });
 
       if (!refreshResponse.ok) {
-        const errorTxt = await refreshResponse.text().catch(() => "");
         processQueue(new Error("Token refresh failed"));
         TokenManager.remove();
         window.location.href = "/login";
-        throw new Error(`Token refresh failed: ${refreshResponse.status} ${errorTxt}`);
+        throw new Error("Token refresh failed");
       }
 
       const refreshData = await safeParseJSON(refreshResponse);
-      const { token: newToken, refreshToken: newRefresh } = (refreshData && (refreshData.data || refreshData)) || {};
+      const { token: newToken, refreshToken: newRefresh } =
+        refreshData?.data || refreshData || {};
 
       if (!newToken) {
         processQueue(new Error("Invalid refresh response"));
@@ -120,7 +132,6 @@ export const apiCall = async (endpoint, options = {}) => {
       TokenManager.set(newToken, newRefresh || refreshToken);
       processQueue(null, newToken);
 
-      // retry the original request with the new token
       config.headers["Authorization"] = `Bearer ${newToken}`;
       response = await fetch(url, config);
     } catch (err) {
@@ -133,83 +144,53 @@ export const apiCall = async (endpoint, options = {}) => {
     }
   }
 
-  // Handle non-OK responses (other than already handled 401)
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}`;
     let errorData = {};
-
     try {
       const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
+      if (contentType?.includes("application/json")) {
         errorData = await response.json();
         errorMessage = errorData.message || errorData.error || errorMessage;
       } else {
         const textResponse = await response.text();
-        console.warn(`Non-JSON response from ${url}:`, textResponse);
         errorMessage = `Server returned ${response.status}: ${response.statusText}`;
         errorData = { raw: textResponse };
       }
-    } catch (parseError) {
-      console.warn(`Error parsing response from ${url}:`, parseError);
+    } catch (err) {
+      console.warn(`Error parsing error response from ${url}:`, err);
     }
-
     const error = new Error(errorMessage);
     error.status = response.status;
     error.data = errorData;
     throw error;
   }
 
-  // Parse JSON (if available)
-  try {
-    return await safeParseJSON(response);
-  } catch (parseError) {
-    console.error(`JSON parse error for ${url}:`, parseError);
-    throw new Error("Invalid JSON response from server");
-  }
-};
-
-// Safe JSON parsing helper that tolerates empty bodies
-const safeParseJSON = async (response) => {
-  const text = await response.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    // If response is not JSON, return raw text
-    return text;
-  }
+  return safeParseJSON(response);
 };
 
 // ================================
-// Safe API call wrapper for dashboard (returns .data when possible)
+// Safe API Call Wrapper
 // ================================
 export const safeApiCall = async (endpoint, options = {}) => {
   try {
     const result = await apiCall(endpoint, options);
-
-    if (result && typeof result === 'object') {
-      // If API returns { success: true, data: {...} } or similar
-      if (result.data !== undefined) return result.data;
-      if (result.success && result.data !== undefined) return result.data;
-      return result;
-    }
+    if (result?.data !== undefined) return result.data;
     return result;
   } catch (error) {
     console.warn(`Safe API call failed for ${endpoint}:`, error);
-
-    // sensible fallbacks used by your dashboard
-    if (endpoint.includes('/users')) return [];
-    if (endpoint.includes('/checkpoints')) return [];
-    if (endpoint.includes('/shifts')) return [];
-    if (endpoint.includes('/patrols')) return [];
-    if (endpoint.includes('/attendance')) return [];
-    if (endpoint.includes('/reports')) return {};
+    if (endpoint.includes("/users")) return [];
+    if (endpoint.includes("/checkpoints")) return [];
+    if (endpoint.includes("/shifts")) return [];
+    if (endpoint.includes("/patrols")) return [];
+    if (endpoint.includes("/attendance")) return [];
+    if (endpoint.includes("/reports")) return {};
     return null;
   }
 };
 
 // ================================
-// Axios-like simple wrapper (convenience)
+// Simple Axios-like API
 // ================================
 const api = {
   get: (endpoint) => apiCall(endpoint),
@@ -220,133 +201,193 @@ const api = {
 };
 
 // ================================
-// Dashboard endpoints (complete list)
+// Dashboard Endpoints
 // ================================
 export const dashboardApi = {
-  // Users
-  getUsers: () => safeApiCall('/users'),
-  createUser: (userData) => apiCall('/users', { method: 'POST', body: userData }),
-  updateUser: (userId, userData) => apiCall(`/users/${userId}`, { method: 'PUT', body: userData }),
-  deleteUser: (userId) => apiCall(`/users/${userId}`, { method: 'DELETE' }),
+  // ================================
+  // Users - Basic CRUD
+  // ================================
+  getUsers: () => safeApiCall("/users"),
+  createUser: (data) => api.post("/users", data),
+  updateUser: (id, data) => api.put(`/users/${id}`, data),
+  deleteUser: (id) => api.delete(`/users/${id}`),
 
+  // ================================
+  // Users - Extended Endpoints
+  // ================================
+  // Profile & Status
+  getMyProfile: () => safeApiCall("/users/me"),
+  getMyDutyStatus: () => safeApiCall("/users/me/duty-status"),
+  toggleMyDutyStatus: (data = {}) => api.post("/users/me/duty-status", data),
+
+  // User Assignment
+  getAssignedGuards: () => safeApiCall("/users/assigned"),
+  getUnassignedGuards: () => safeApiCall("/users/unassigned"),
+  getGuardsByCheckpoint: (checkpointId) => safeApiCall(`/users/checkpoint/${checkpointId}/guards`),
+
+  // User Details & Security
+  getUserSecurityInfo: (id) => safeApiCall(`/users/${id}/security`),
+  getUserActivity: (id) => safeApiCall(`/users/${id}/activity`),
+
+  // User Management Actions
+  reactivateUser: (id, data = {}) => api.post(`/users/${id}/reactivate`, data),
+  assignUserToCheckpoint: (id, data) => api.post(`/users/${id}/assign-checkpoint`, data),
+  unassignUserFromCheckpoint: (id, data = {}) => api.post(`/users/${id}/unassign-checkpoint`, data),
+  unlockUserAccount: (id, data = {}) => api.post(`/users/${id}/unlock`, data),
+  resetUserLoginAttempts: (id, data = {}) => api.post(`/users/${id}/reset-login-attempts`, data),
+  changeUserPassword: (id, data) => api.post(`/users/${id}/change-password`, data),
+  resendEmailVerification: (id, data = {}) => api.post(`/users/${id}/resend-verification`, data),
+  forceVerifyEmail: (id, data = {}) => api.post(`/users/${id}/force-verify`, data),
+
+  // ================================
   // Checkpoints
-  getCheckpoints: () => safeApiCall('/checkpoints'),
-  createCheckpoint: (checkpointData) => apiCall('/checkpoints', { method: 'POST', body: checkpointData }),
- updateCheckpoint: (checkpointId, checkpointData) => apiCall(`/checkpoints/${checkpointId}`, { method: 'PUT', body: checkpointData }),
-  deleteCheckpoint: (checkpointId) => apiCall(`/checkpoints/${checkpointId}`, { method: 'DELETE' }),
+  // ================================
+  getCheckpoints: () => safeApiCall("/checkpoints"),
+  createCheckpoint: (data) => api.post("/checkpoints", data),
+  updateCheckpoint: (id, data) => api.put(`/checkpoints/${id}`, data),
+  deleteCheckpoint: (id) => api.delete(`/checkpoints/${id}`),
 
-  // Robust nearby lookup:
-  //
-  // Usage:
-  //   .getNearbyCheckpoints(lat, lng)           // tries POST then GET fallback
-  //   dashboardApi.getNearbyCheckpoints({ latitude, longitude, radius, preferPost })
-  //
-  getNearbyCheckpoints: async (latOrObj, lng, radius = 1000, preferPost = false) => {
-    // normalize arguments
-    let latitude, longitude, usePost;
-    if (typeof latOrObj === 'object') {
-      const obj = latOrObj || {};
-      latitude = obj.latitude ?? obj.lat ?? obj.latlng ?? obj.latLng;
-      longitude = obj.longitude ?? obj.lng ?? obj.lon ?? obj.long;
-      radius = obj.radius ?? radius;
-      usePost = obj.preferPost ?? preferPost;
-    } else {
-      latitude = latOrObj;
-      longitude = lng;
-      usePost = preferPost;
-    }
+  // ================================
+  // Attendance
+  // ================================
+  getAttendanceReport: () => safeApiCall("/attendance/daily-report"),
+  getActiveGuards: () => safeApiCall("/attendance/active-guards"),
 
-    if (latitude === undefined || longitude === undefined) {
-      throw new Error("Latitude and longitude are required");
-    }
+  // ================================
+  // Patrols
+  // ================================
+  getPatrolLogs: () => safeApiCall("/patrol-logs"),
 
-    // try preferred method first, otherwise try POST then GET fallback
-    const tryPost = async () => {
-      try {
-        // use POST with JSON body (some clients used POST previously)
-        const res = await api.post('/checkpoints/nearby', { latitude, longitude, radius });
-        return res;
-      } catch (err) {
-        // rethrow to let caller decide fallback
-        throw err;
-      }
-    };
+  // ================================
+  // Shifts - Extended Endpoints
+  // ================================
+  getShifts: () => safeApiCall("/shifts"),
+  getCurrentShift: () => safeApiCall("/shifts/current"),
+  getShift: (id) => safeApiCall(`/shifts/${id}`),
+  getShiftStats: (id) => safeApiCall(`/shifts/${id}/stats`),
+  toggleShift: (id, data = {}) => api.post(`/shifts/${id}/toggle`, data),
+  setupDefaultShifts: (data) => api.post("/shifts/setup-defaults", data),
 
-    const tryGet = async () => {
-      // GET with query string; controller expects 'latitude' & 'longitude' per server code
-      const q = `?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}&radius=${encodeURIComponent(radius)}`;
-      return await apiCall(`/checkpoints/nearby${q}`, { method: 'GET' });
-    };
+  // ================================
+  // Reports - Extended Endpoints
+  // ================================
+  getSystemSummary: () => safeApiCall("/reports/summary"),
+  getMyPerformance: () => safeApiCall("/reports/my-performance"),
+  getMissedVisits: () => safeApiCall("/reports/missed-visits"),
+  getCheckpointReports: () => safeApiCall("/reports/checkpoints"),
+  getGuardReports: () => safeApiCall("/reports/guards"),
+  getGuardReport: (id) => safeApiCall(`/reports/guards/${id}`),
+  exportData: (type, format) =>
+    api.get(`/reports/export/${format}?type=${type}`),
 
-    // If prefer POST, try POST then GET fallback
-    if (usePost) {
-      try {
-        return await tryPost();
-      } catch (postErr) {
-        // If 404 route not found or 405, try GET fallback
-        if (postErr && (postErr.status === 404 || postErr.status === 405 || /not found/i.test(postErr.message))) {
-          return tryGet();
-        }
-        throw postErr;
-      }
-    }
+  // ================================
+  // Health & System
+  // ================================
+  healthCheck: () => safeApiCall("/health"),
+};
 
-    // Default: try GET first (this matches typical REST usage)
-    try {
-      return await tryGet();
-    } catch (getErr) {
-      // fallback to POST if GET fails with 404/405
-      if (getErr && (getErr.status === 404 || getErr.status === 405 || /not found/i.test(getErr.message))) {
-        try {
-          return await tryPost();
-        } catch (postErr) {
-          // both failed -> bubble the original errors
-          // prefer the more descriptive error
-          throw postErr.status ? postErr : getErr;
-        }
-      }
-      throw getErr;
-    }
+// ================================
+// User-specific API (for guards/users)
+// ================================
+export const userApi = {
+  // Profile
+  getProfile: () => dashboardApi.getMyProfile(),
+  updateProfile: (data) => api.put("/users/me", data),
+
+  // Duty Status
+  getDutyStatus: () => dashboardApi.getMyDutyStatus(),
+  toggleDutyStatus: (data) => dashboardApi.toggleMyDutyStatus(data),
+
+  // Performance
+  getMyPerformance: () => dashboardApi.getMyPerformance(),
+  getMissedVisits: () => dashboardApi.getMissedVisits(),
+
+  // Current shift
+  getCurrentShift: () => dashboardApi.getCurrentShift(),
+};
+
+// ================================
+// Admin-specific API
+// ================================
+export const adminApi = {
+  // User Management
+  users: {
+    getAll: () => dashboardApi.getUsers(),
+    create: (data) => dashboardApi.createUser(data),
+    update: (id, data) => dashboardApi.updateUser(id, data),
+    delete: (id) => dashboardApi.deleteUser(id),
+    getAssigned: () => dashboardApi.getAssignedGuards(),
+    getUnassigned: () => dashboardApi.getUnassignedGuards(),
+    getByCheckpoint: (checkpointId) => dashboardApi.getGuardsByCheckpoint(checkpointId),
+    getSecurity: (id) => dashboardApi.getUserSecurityInfo(id),
+    getActivity: (id) => dashboardApi.getUserActivity(id),
+    reactivate: (id, data) => dashboardApi.reactivateUser(id, data),
+    assignCheckpoint: (id, data) => dashboardApi.assignUserToCheckpoint(id, data),
+    unassignCheckpoint: (id, data) => dashboardApi.unassignUserFromCheckpoint(id, data),
+    unlock: (id, data) => dashboardApi.unlockUserAccount(id, data),
+    resetLoginAttempts: (id, data) => dashboardApi.resetUserLoginAttempts(id, data),
+    changePassword: (id, data) => dashboardApi.changeUserPassword(id, data),
+    resendVerification: (id, data) => dashboardApi.resendEmailVerification(id, data),
+    forceVerify: (id, data) => dashboardApi.forceVerifyEmail(id, data),
   },
 
-  // Attendance
-  getAttendanceReport: () => safeApiCall('/attendance/daily-report'),
-  getActiveGuards: () => safeApiCall('/attendance/active-guards'),
+  // Checkpoint Management
+  checkpoints: {
+    getAll: () => dashboardApi.getCheckpoints(),
+    create: (data) => dashboardApi.createCheckpoint(data),
+    update: (id, data) => dashboardApi.updateCheckpoint(id, data),
+    delete: (id) => dashboardApi.deleteCheckpoint(id),
+  },
 
-  // Patrols
-  getPatrols: () => safeApiCall('/patrols'),
-
-  // Shifts
-  getShifts: () => safeApiCall('/shifts'),
+  // Shift Management
+  shifts: {
+    getAll: () => dashboardApi.getShifts(),
+    getCurrent: () => dashboardApi.getCurrentShift(),
+    get: (id) => dashboardApi.getShift(id),
+    getStats: (id) => dashboardApi.getShiftStats(id),
+    toggle: (id, data) => dashboardApi.toggleShift(id, data),
+    setupDefaults: (data) => dashboardApi.setupDefaultShifts(data),
+  },
 
   // Reports
-  getSystemSummary: () => safeApiCall('/reports/summary'),
-  exportData: (type, format) => apiCall(`/reports/export/${format}?type=${type}`),
+  reports: {
+    getSystemSummary: () => dashboardApi.getSystemSummary(),
+    getCheckpoints: () => dashboardApi.getCheckpointReports(),
+    getGuards: () => dashboardApi.getGuardReports(),
+    getGuard: (id) => dashboardApi.getGuardReport(id),
+    getMissedVisits: () => dashboardApi.getMissedVisits(),
+    export: (type, format) => dashboardApi.exportData(type, format),
+  },
 
-  // Health
-  healthCheck: () => safeApiCall('/health'),
+  // System
+  system: {
+    healthCheck: () => dashboardApi.healthCheck(),
+    getAttendanceReport: () => dashboardApi.getAttendanceReport(),
+    getActiveGuards: () => dashboardApi.getActiveGuards(),
+    getPatrolLogs: () => dashboardApi.getPatrolLogs(),
+  },
 };
 
 // ================================
-// Network status monitoring
+// Network Monitor
 // ================================
 export const NetworkMonitor = {
-  isOnline: () => typeof navigator !== 'undefined' ? navigator.onLine : true,
-
+  isOnline: () => (typeof navigator !== "undefined" ? navigator.onLine : true),
   onStatusChange: (callback) => {
-    if (typeof window === 'undefined') return () => {};
+    if (typeof window === "undefined") return () => {};
     const handleOnline = () => callback(true);
     const handleOffline = () => callback(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
-  }
+  },
 };
 
+// ================================
+// Convenience Exports
+// ================================
 export default api;
-export { TokenManager }; 
+export { TokenManager };

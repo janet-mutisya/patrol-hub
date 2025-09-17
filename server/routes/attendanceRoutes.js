@@ -151,7 +151,7 @@ const getGuardHistory = async (req, res) => {
     
     console.log(`Admin ${req.user.email} requesting history for guard ${guardId}`);
 
-    const { User, Attendance } = require('../models');
+    const { User, Attendance, Shift, Checkpoint } = require('../models');
     const { Op } = require('sequelize');
 
     // Verify guard exists
@@ -178,35 +178,44 @@ const getGuardHistory = async (req, res) => {
       where: whereClause,
       order: [['checkInTime', 'DESC']],
       limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      include: [
+        { model: Shift, as: 'shift', attributes: ['id', 'name', 'start_time', 'end_time'] },
+        { model: Checkpoint, as: 'checkpoint', attributes: ['id', 'name', 'location'] }
+      ]
     });
 
     // Format the response using the guard we already fetched
-    const formattedHistory = attendanceRecords.map(attendance => ({
-      id: attendance.id,
+    const formattedHistory = attendanceRecords.map(att => ({
+      id: att.id,
       guard_name: guard.name,
       badge_number: guard.badgeNumber || 'N/A',
-      shift_name: attendance.shift + ' Shift',
-      date: attendance.date,
-      checkInTime: attendance.checkInTime,
-      checkOutTime: attendance.checkOutTime,
-      status: attendance.status,
-      late_minutes: 0,
-      total_hours: attendance.total_hours,
-      checkpoint: attendance.checkpoint_id ? `Checkpoint ${attendance.checkpoint_id}` : null,
-      notes: attendance.notes,
+      shift: att.shift ? {
+        id: att.shift.id,
+        name: att.shift.name,
+        start_time: att.shift.start_time,
+        end_time: att.shift.end_time
+      } : null,
+      date: att.date,
+      checkInTime: att.checkInTime,
+      checkOutTime: att.checkOutTime,
+      status: att.status,
+      late_minutes: att.late_minutes,
+      total_hours: att.total_hours,
+      checkpoint: att.checkpoint ? {
+        id: att.checkpoint.id,
+        name: att.checkpoint.name,
+        location: att.checkpoint.location
+      } : null,
+      notes: att.notes,
       location: {
         checkin: {
-          latitude: attendance.latitude,
-          longitude: attendance.longitude,
-          place_name: attendance.place_name,
-          formatted_address: attendance.formatted_address
+          latitude: att.check_in_lat,
+          longitude: att.check_in_lng
         },
-        checkout: attendance.checkout_latitude ? {
-          latitude: attendance.checkout_latitude,
-          longitude: attendance.checkout_longitude,
-          place_name: attendance.checkout_place_name,
-          formatted_address: attendance.checkout_formatted_address
+        checkout: att.check_out_lat ? {
+          latitude: att.check_out_lat,
+          longitude: att.check_out_lng
         } : null
       }
     }));
@@ -240,8 +249,108 @@ const getGuardHistory = async (req, res) => {
   }
 };
 
+// Add this route to your attendanceRoutes.js for debugging
+router.get('/debug-stats',
+  auth,
+  requireRole(['admin']),
+  async (req, res) => {
+    try {
+      console.log('Debug stats route hit');
+      
+      // Test basic response
+      res.json({
+        success: true,
+        message: 'Debug route working',
+        user: req.user ? { id: req.user.id, email: req.user.email } : 'No user',
+        timestamp: new Date()
+      });
+    } catch (error) {
+      console.error('Debug stats error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Debug failed',
+        details: error.message
+      });
+    }
+  }
+);
+
+// Simplified stats route with better error handling
+router.get('/stats-simple',
+  auth,
+  requireRole(['admin']),
+  async (req, res) => {
+    try {
+      console.log('Simple stats route hit by user:', req.user?.email);
+      
+      // Try importing models
+      let User, Attendance, Op;
+      try {
+        const models = require('../models');
+        User = models.User;
+        Attendance = models.Attendance;
+        Op = require('sequelize').Op;
+        console.log('Models imported successfully');
+      } catch (importError) {
+        console.error('Model import error:', importError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to import models',
+          details: importError.message
+        });
+      }
+
+      // Try basic queries one by one
+      console.log('Testing User model...');
+      const totalGuards = await User.count({ where: { role: 'guard' } });
+      console.log('Total guards:', totalGuards);
+
+      console.log('Testing Attendance model...');
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      
+      const todayCheckins = await Attendance.count({
+        where: { 
+          checkInTime: { 
+            [Op.between]: [todayStart, todayEnd] 
+          } 
+        }
+      });
+      console.log('Today checkins:', todayCheckins);
+
+      res.json({
+        success: true,
+        stats: {
+          total_guards: totalGuards || 0,
+          active_guards: totalGuards || 0,
+          checked_in_today: todayCheckins || 0,
+          currently_on_duty: 0,
+          attendance_rate: 0,
+          duty_rate: 0
+        },
+        debug: {
+          user_role: req.user?.role,
+          models_available: !!User && !!Attendance,
+          date_range: { todayStart, todayEnd }
+        }
+      });
+
+    } catch (error) {
+      console.error('Simple stats error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Simple stats failed',
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+);
+
 // ==========================================
-// PUBLIC/TEST ROUTES
+// PUBLIC/TEST ROUTES FIRST
 // ==========================================
 
 router.get('/test', (req, res) => {
@@ -281,7 +390,70 @@ router.get('/health', (req, res) => {
 });
 
 // ==========================================
-// GUARD ROUTES
+// SYSTEM STATS ROUTE - MOVED TO TOP
+// ==========================================
+
+/**
+ * Get system statistics
+ */
+router.get('/stats',
+  auth,
+  requireRole(['admin']),
+  async (req, res) => {
+    try {
+      const { User, Attendance } = require('../models');
+      const { Op } = require('sequelize');
+      
+      const today = new Date();
+      const dateString = today.toISOString().split('T')[0];
+      const startOfDay = new Date(`${dateString}T00:00:00Z`);
+      const endOfDay = new Date(`${dateString}T23:59:59Z`);
+
+      // Run queries in parallel for performance
+      const [totalGuards, totalActiveUsers, todayCheckins, activeGuards] = await Promise.all([
+        User.count({ where: { role: 'guard' } }),
+        User.count({ where: { role: 'guard', status: 'active' } }),
+        Attendance.count({
+          where: { checkInTime: { [Op.between]: [startOfDay, endOfDay] } }
+        }),
+        Attendance.count({
+          where: {
+            checkInTime: { [Op.between]: [startOfDay, endOfDay] },
+            checkOutTime: null
+          }
+        })
+      ]);
+
+      res.json({
+        success: true,
+        date: dateString,
+        stats: {
+          total_guards: totalGuards,
+          active_guards: totalActiveUsers,
+          checked_in_today: todayCheckins,
+          currently_on_duty: activeGuards,
+          attendance_rate: totalActiveUsers > 0
+            ? Math.round((todayCheckins / totalActiveUsers) * 100)
+            : 0,
+          duty_rate: totalActiveUsers > 0
+            ? Math.round((activeGuards / totalActiveUsers) * 100)
+            : 0
+        },
+        timestamp: new Date()
+      });
+    } catch (error) {
+      console.error('Stats route error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch system stats',
+        details: error.message
+      });
+    }
+  }
+);
+
+// ==========================================
+// OTHER SPECIFIC ROUTES (before parameterized)
 // ==========================================
 
 /**
@@ -300,48 +472,6 @@ router.get('/history',
   validatePagination,
   getAttendanceHistory
 );
-
-/**
- * Guard check-in with automatic location detection and reverse geocoding
- * Body: { latitude: number, longitude: number, checkpoint_id?: number }
- */
-router.post('/check-in', 
-  auth,
-  validateCheckIn,
-  checkIn
-);
-
-/**
- * Alternative check-in endpoint (same functionality)
- */
-router.post('/checkin', 
-  auth,
-  validateCheckIn,
-  checkIn
-);
-
-/**
- * Guard check-out with location
- * Body: { latitude: number, longitude: number }
- */
-router.post('/check-out', 
-  auth,
-  validateCheckOut,
-  checkOut
-);
-
-/**
- * Alternative check-out endpoint (same functionality)
- */
-router.post('/checkout', 
-  auth,
-  validateCheckOut,
-  checkOut
-);
-
-// ==========================================
-// ADMIN-ONLY ROUTES
-// ==========================================
 
 /**
  * Get all guard check-ins with location details (NEW MAIN ENDPOINT)
@@ -374,26 +504,6 @@ router.get('/active',
 );
 
 /**
- * Auto-mark absent guards for current shift
- */
-router.post('/mark-absent', 
-  auth,
-  requireRole(['admin']),
-  autoMarkAbsent
-);
-
-/**
- * Manually mark a specific guard as off-duty
- * Body: { guard_id: number, reason?: string }
- */
-router.post('/mark-off', 
-  auth,
-  requireRole(['admin']),
-  validateMarkOff,
-  markOff
-);
-
-/**
  * Get comprehensive daily attendance report
  * Query params: ?date=YYYY-MM-DD (defaults to today)
  */
@@ -415,20 +525,78 @@ router.get('/report/daily',
 );
 
 /**
- * Get attendance history for any specific guard (admin view)
- * Path params: guard_id
- * Query params: ?page=1&limit=10&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+ * Export attendance report (CSV/Excel)
+ * Query params: ?date=YYYY-MM-DD&format=csv|xlsx
  */
-router.get('/guard/:guard_id/history', 
+router.get('/export',
   auth,
   requireRole(['admin']),
-  validatePagination,
-  getGuardHistory
-);
+  async (req, res) => {
+    try {
+      const { Attendance, User } = require('../models');
+      const { date = new Date().toISOString().split('T')[0], format = 'csv' } = req.query;
 
-// ==========================================
-// UTILITY ROUTES
-// ==========================================
+      const records = await Attendance.findAll({
+        where: { date },
+        include: [
+          { model: User, as: 'guard', attributes: ['name', 'email', 'badgeNumber'] }
+        ],
+        order: [['checkInTime', 'ASC']]
+      });
+
+      // Convert to rows
+      const rows = records.map(r => ({
+        guard: r.guard?.name || 'Unknown',
+        badge: r.guard?.badgeNumber || 'N/A',
+        date: r.date,
+        checkIn: r.checkInTime,
+        checkOut: r.checkOutTime,
+        status: r.status,
+        totalHours: r.total_hours
+      }));
+
+      if (format === 'xlsx') {
+        const ExcelJS = require('exceljs');
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Attendance');
+
+        sheet.columns = [
+          { header: 'Guard', key: 'guard' },
+          { header: 'Badge', key: 'badge' },
+          { header: 'Date', key: 'date' },
+          { header: 'Check In', key: 'checkIn' },
+          { header: 'Check Out', key: 'checkOut' },
+          { header: 'Status', key: 'status' },
+          { header: 'Total Hours', key: 'totalHours' }
+        ];
+
+        sheet.addRows(rows);
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=attendance-${date}.xlsx`);
+
+        await workbook.xlsx.write(res);
+        res.end();
+      } else {
+        // Default CSV
+        const { Parser } = require('json2csv');
+        const parser = new Parser();
+        const csv = parser.parse(rows);
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=attendance-${date}.csv`);
+        res.send(csv);
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Export failed',
+        details: error.message
+      });
+    }
+  }
+);
 
 /**
  * Test reverse geocoding functionality
@@ -483,123 +651,82 @@ router.get('/test-geocoding',
   }
 );
 
+// ==========================================
+// POST ROUTES
+// ==========================================
+
 /**
- * Get system statistics
+ * Guard check-in with automatic location detection and reverse geocoding
+ * Body: { latitude: number, longitude: number, checkpoint_id?: number }
  */
-router.get('/stats', 
+router.post('/check-in', 
   auth,
-  requireRole(['admin']),
-  async (req, res) => {
-    try {
-      const { Attendance, User } = require('../models');
-      const { Op } = require('sequelize');
-      
-      const today = new Date();
-      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-      
-      const [totalGuards, todayCheckins, activeGuards] = await Promise.all([
-        User.count({ where: { role: 'guard', status: 'active' } }),
-        Attendance.count({
-          where: {
-            checkInTime: { [Op.between]: [startOfDay, endOfDay] }
-          }
-        }),
-        Attendance.count({
-          where: {
-            checkInTime: { [Op.between]: [startOfDay, endOfDay] },
-            checkOutTime: null
-          }
-        })
-      ]);
-      
-      res.json({
-        success: true,
-        stats: {
-          total_active_guards: totalGuards,
-          todays_checkins: todayCheckins,
-          currently_active: activeGuards,
-          attendance_rate: totalGuards > 0 ? Math.round((todayCheckins / totalGuards) * 100) : 0
-        },
-        date: today.toISOString().split('T')[0]
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to get stats',
-        details: error.message
-      });
-    }
-  }
-);
-/**
- * Export attendance report (CSV/Excel)
- * Query params: ?date=YYYY-MM-DD&format=csv|xlsx
- */
-router.get('/export',
-  auth,
-  requireRole(['admin']),
-  async (req, res) => {
-    try {
-      const { Attendance, User } = require('../models');
-      const { Op } = require('sequelize');
-      const { date = new Date().toISOString().split('T')[0], format = 'csv' } = req.query;
-
-      const records = await Attendance.findAll({
-        where: { date },
-        include: [{ model: User, attributes: ['name', 'email', 'badgeNumber'] }],
-        order: [['checkInTime', 'ASC']]
-      });
-
-      // Convert to rows
-      const rows = records.map(r => ({
-        guard: r.User?.name || 'Unknown',
-        badge: r.User?.badgeNumber || 'N/A',
-        date: r.date,
-        checkIn: r.checkInTime,
-        checkOut: r.checkOutTime,
-        status: r.status,
-        totalHours: r.total_hours
-      }));
-
-      if (format === 'xlsx') {
-        const ExcelJS = require('exceljs');
-        const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Attendance');
-
-        sheet.columns = [
-          { header: 'Guard', key: 'guard' },
-          { header: 'Badge', key: 'badge' },
-          { header: 'Date', key: 'date' },
-          { header: 'Check In', key: 'checkIn' },
-          { header: 'Check Out', key: 'checkOut' },
-          { header: 'Status', key: 'status' },
-          { header: 'Total Hours', key: 'totalHours' }
-        ];
-
-        sheet.addRows(rows);
-
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename=attendance-${date}.xlsx`);
-
-        await workbook.xlsx.write(res);
-        res.end();
-      } else {
-        // Default CSV
-        const { Parser } = require('json2csv');
-        const parser = new Parser();
-        const csv = parser.parse(rows);
-
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename=attendance-${date}.csv`);
-        res.send(csv);
-      }
-    } catch (err) {
-      console.error('Export error:', err);
-      res.status(500).json({ success: false, error: 'Failed to export report' });
-    }
-  }
+  validateCheckIn,
+  checkIn
 );
 
+/**
+ * Alternative check-in endpoint (same functionality)
+ */
+router.post('/checkin', 
+  auth,
+  validateCheckIn,
+  checkIn
+);
+
+/**
+ * Guard check-out with location
+ * Body: { latitude: number, longitude: number }
+ */
+router.post('/check-out', 
+  auth,
+  validateCheckOut,
+  checkOut
+);
+
+/**
+ * Alternative check-out endpoint (same functionality)
+ */
+router.post('/checkout', 
+  auth,
+  validateCheckOut,
+  checkOut
+);
+
+/**
+ * Auto-mark absent guards for current shift
+ */
+router.post('/mark-absent', 
+  auth,
+  requireRole(['admin']),
+  autoMarkAbsent
+);
+
+/**
+ * Manually mark a specific guard as off-duty
+ * Body: { guard_id: number, reason?: string }
+ */
+router.post('/mark-off', 
+  auth,
+  requireRole(['admin']),
+  validateMarkOff,
+  markOff
+);
+
+// ==========================================
+// PARAMETERIZED ROUTES LAST
+// ==========================================
+
+/**
+ * Get attendance history for any specific guard (admin view)
+ * Path params: guard_id
+ * Query params: ?page=1&limit=10&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+ */
+router.get('/guard/:guard_id/history', 
+  auth,
+  requireRole(['admin']),
+  validatePagination,
+  getGuardHistory
+);
 
 module.exports = router;

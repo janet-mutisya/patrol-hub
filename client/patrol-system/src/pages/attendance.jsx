@@ -932,12 +932,12 @@ const AttendanceSystem = ({
       )}
 
       {/* Guard Status Card (Always visible, but different layout for admin) */}
-      {(userRole === ROLES.GUARD || (userRole === ROLES.ADMIN && activeTab === 'status')) && (
+      {userRole === ROLES.GUARD  && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-600" />
-              {userRole === ROLES.ADMIN ? 'My Status' : 'Current Status'}
+              Current Status
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -963,6 +963,7 @@ const AttendanceSystem = ({
                     </span>
                     <span className="font-medium text-blue-600">{currentShift}</span>
                   </div>
+                  
 
                   {nearestCheckpoint && (
                     <>

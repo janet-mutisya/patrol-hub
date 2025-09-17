@@ -18,7 +18,26 @@ const {
 } = require('../controllers/patrollogController');
 
 // ================================
-// SPECIFIC ROUTES FIRST (before parameterized routes)
+// MAIN CRUD OPERATIONS FIRST
+// ================================
+
+// Admin can get all patrol logs - MUST BE FIRST
+router.get('/',
+  auth,
+  requireRole(['admin']),
+  getAllPatrolLogs
+);
+
+// Guards can create their own patrol logs
+router.post('/',
+  auth,
+  fallbackToGuard,
+  requireRole(['guard', 'admin']),
+  createPatrolLog
+);
+
+// ================================
+// SPECIFIC ROUTES (before parameterized routes)
 // ================================
 
 // Admin can get patrol statistics
@@ -81,7 +100,7 @@ router.get('/export/pdf',
 );
 
 // ================================
-// GUARD/ADMIN ROUTES BY RESOURCE ID
+// RESOURCE-SPECIFIC ROUTES
 // ================================
 
 // Admin can get logs by any guard
@@ -147,25 +166,6 @@ router.delete('/:id',
   auth,
   requireRole(['admin']),
   deletePatrolLog
-);
-
-// ================================
-// CRUD OPERATIONS
-// ================================
-
-// Guards can create their own patrol logs
-router.post('/',
-  auth,
-  fallbackToGuard,
-  requireRole(['guard', 'admin']),
-  createPatrolLog
-);
-
-// Admin can get all patrol logs
-router.get('/',
-  auth,
-  requireRole(['admin']),
-  getAllPatrolLogs
 );
 
 module.exports = router;

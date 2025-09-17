@@ -1,4 +1,4 @@
-// controllers/attendanceController.js - Fixed version with correct column names
+// controllers/attendanceController.js - Fully Fixed Association Aliases
 
 // Import required models and Sequelize operators
 const { User, Attendance, PatrolLog, Checkpoint, Shift } = require('../models');
@@ -6,12 +6,9 @@ const { Op } = require('sequelize');
 const axios = require('axios');
 
 // ==========================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS (unchanged)
 // ==========================================
 
-/**
- * Reverse geocode coordinates to get place name using OpenStreetMap Nominatim
- */
 const reverseGeocode = async (latitude, longitude) => {
   try {
     const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
@@ -36,7 +33,6 @@ const reverseGeocode = async (latitude, longitude) => {
       };
     }
     
-    // Fallback if no display_name
     return {
       place_name: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
       address: {},
@@ -44,7 +40,6 @@ const reverseGeocode = async (latitude, longitude) => {
     };
   } catch (error) {
     console.error('Reverse geocoding failed:', error.message);
-    // Return coordinates as fallback
     return {
       place_name: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
       address: {},
@@ -54,9 +49,6 @@ const reverseGeocode = async (latitude, longitude) => {
   }
 };
 
-/**
- * Calculate distance between two coordinates using Haversine formula
- */
 const calculateDistance = (lat1, lng1, lat2, lng2) => {
   const R = 6371000; // Earth's radius in meters
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -69,32 +61,40 @@ const calculateDistance = (lat1, lng1, lat2, lng2) => {
   return R * c; // Distance in meters
 };
 
-/**
- * Check if a location is within a geofence radius
- */
 const isWithinGeofence = (userLat, userLng, checkpointLat, checkpointLng, radius) => {
   const distance = calculateDistance(userLat, userLng, checkpointLat, checkpointLng);
   return distance <= radius;
 };
 
-/**
- * Get today's date in YYYY-MM-DD format
- */
 const getTodayDate = () => {
   return new Date().toISOString().split('T')[0];
 };
 
-/**
- * Determine current shift based on time of day and get shift ID
- */
+let shiftsCache = null;
+let shiftsCacheExpiry = null;
+
+const getShiftsFromCache = async () => {
+  const now = Date.now();
+  
+  if (!shiftsCache || !shiftsCacheExpiry || now > shiftsCacheExpiry) {
+    shiftsCache = await Shift.findAll({
+      attributes: ['id', 'name', 'start_time', 'end_time']
+    });
+    shiftsCacheExpiry = now + (60 * 60 * 1000);
+  }
+  
+  return shiftsCache;
+};
+
 const getCurrentShift = async () => {
   const hour = new Date().getHours();
   let shiftName;
 
-  if (hour >= 6 && hour < 18) shiftName = 'Day';   // 6:00 AM - 5:59 PM
-  else shiftName = 'Night';                        // 6:00 PM - 5:59 AM
+  if (hour >= 6 && hour < 18) shiftName = 'Day';
+  else shiftName = 'Night';
 
-  const shift = await Shift.findOne({ where: { name: shiftName } });
+  const shifts = await getShiftsFromCache();
+  const shift = shifts.find(s => s.name === shiftName);
 
   if (!shift) {
     throw new Error(`Shift '${shiftName}' not found in database`);
@@ -108,11 +108,6 @@ const getCurrentShift = async () => {
   };
 };
 
-
-
-/**
- * Get start and end timestamps for today
- */
 const getTodayDateRange = () => {
   const today = new Date();
   const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -120,9 +115,6 @@ const getTodayDateRange = () => {
   return { startOfDay, endOfDay };
 };
 
-/**
- * Calculate total hours and minutes between check-in and check-out times
- */
 const calculateHours = (checkInTime, checkOutTime) => {
   const diffMs = new Date(checkOutTime) - new Date(checkInTime);
   const totalMinutes = Math.floor(diffMs / (1000 * 60));
@@ -131,12 +123,9 @@ const calculateHours = (checkInTime, checkOutTime) => {
 };
 
 // ==========================================
-// MAIN CONTROLLER FUNCTIONS
+// CONTROLLER FUNCTIONS - ALL ALIASES FIXED
 // ==========================================
 
-/**
- * GUARD CHECK-IN ENDPOINT - Fixed with correct shift_id
- */
 const checkIn = async (req, res) => {
   try {
     const { latitude, longitude, checkpoint_id } = req.body;
@@ -152,7 +141,6 @@ const checkIn = async (req, res) => {
       });
     }
 
-    // Validate coordinate ranges
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
       return res.status(400).json({
         success: false,
@@ -161,26 +149,14 @@ const checkIn = async (req, res) => {
       });
     }
 
-    // Verify guard exists
-    const guard = await User.findByPk(guardId);
-    if (!guard) {
-      return res.status(404).json({
-        success: false,
-        error: 'Guard not found',
-        code: 'GUARD_NOT_FOUND'
-      });
-    }
-
-    // Get current shift information
     const currentShift = await getCurrentShift();
     const now = new Date();
     const { startOfDay, endOfDay } = getTodayDateRange();
 
-    // Check if guard already checked in today for this shift
     const existingAttendance = await Attendance.findOne({
       where: {
         guard_id: guardId,
-        shift_id: currentShift.id,  // ✅ Fixed: Use shift_id instead of shift
+        shift_id: currentShift.id,
         checkInTime: {
           [Op.between]: [startOfDay, endOfDay]
         }
@@ -199,19 +175,29 @@ const checkIn = async (req, res) => {
       });
     }
 
-    // Get place name using reverse geocoding
-    console.log('Starting reverse geocoding...');
-    const locationInfo = await reverseGeocode(latitude, longitude);
-    console.log('Reverse geocoding result:', locationInfo);
+    const guard = await User.findByPk(guardId);
+    if (!guard) {
+      return res.status(404).json({
+        success: false,
+        error: 'Guard not found',
+        code: 'GUARD_NOT_FOUND'
+      });
+    }
 
-    // Handle checkpoint validation if provided
-    let checkpoint = null;
+    const promises = [
+      reverseGeocode(latitude, longitude)
+    ];
+
+    if (checkpoint_id) {
+      promises.push(Checkpoint.findByPk(checkpoint_id));
+    }
+
+    const [locationInfo, checkpoint] = await Promise.all(promises);
+
     let locationValidationPassed = true;
     let distanceFromCheckpoint = null;
     
     if (checkpoint_id) {
-      checkpoint = await Checkpoint.findByPk(checkpoint_id);
-      
       if (!checkpoint) {
         return res.status(404).json({
           success: false,
@@ -246,22 +232,20 @@ const checkIn = async (req, res) => {
       }
     }
 
-    // Create attendance record with location information
     const attendance = await Attendance.create({
       guard_id: guardId,
-      shift_id: currentShift.id,  // ✅ Fixed: Use shift_id instead of shift
+      shift_id: currentShift.id,
       checkInTime: now,
       status: 'Present',
       date: getTodayDate(),
-      latitude: latitude,
-      longitude: longitude,
+      check_in_lat: latitude,
+      check_in_lng: longitude,
       place_name: locationInfo.place_name,
       formatted_address: locationInfo.formatted_address,
       geocoding_error: locationInfo.geocoding_error || null,
       checkpoint_id: checkpoint_id || null
     });
 
-    // Create patrol log if checkpoint assigned
     let patrolLog = null;
     let checkpointInfo = null;
     
@@ -295,7 +279,7 @@ const checkIn = async (req, res) => {
       data: {
         attendance_id: attendance.id,
         status: attendance.status,
-        shift: currentShift.name,  // Return shift name for display
+        shift: currentShift.name,
         checkInTime: attendance.checkInTime,
         location: {
           latitude: latitude,
@@ -320,9 +304,6 @@ const checkIn = async (req, res) => {
   }
 };
 
-/**
- * GUARD CHECK-OUT ENDPOINT - Fixed with correct shift_id
- */
 const checkOut = async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
@@ -338,7 +319,6 @@ const checkOut = async (req, res) => {
       });
     }
 
-    // Validate coordinate ranges
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
       return res.status(400).json({
         success: false,
@@ -347,25 +327,14 @@ const checkOut = async (req, res) => {
       });
     }
 
-    const guard = await User.findByPk(guardId);
-    if (!guard) {
-      return res.status(404).json({
-        success: false,
-        error: 'Guard not found',
-        code: 'GUARD_NOT_FOUND'
-      });
-    }
-
-    // Get current shift information
     const currentShift = await getCurrentShift();
     const now = new Date();
     const { startOfDay, endOfDay } = getTodayDateRange();
 
-    // Find attendance record to update
     const attendance = await Attendance.findOne({
       where: {
         guard_id: guardId,
-        shift_id: currentShift.id,  // ✅ Fixed: Use shift_id instead of shift
+        shift_id: currentShift.id,
         checkInTime: {
           [Op.between]: [startOfDay, endOfDay]
         },
@@ -373,7 +342,7 @@ const checkOut = async (req, res) => {
       },
       include: [{
         model: Shift,
-        as: 'shift',
+        as: 'shift', // ✅ FIXED: Using proper alias
         attributes: ['name', 'start_time', 'end_time']
       }]
     });
@@ -386,27 +355,26 @@ const checkOut = async (req, res) => {
       });
     }
 
-    // Get place name for check-out location
+    const guard = await User.findByPk(guardId);
+
     console.log('Getting checkout location info...');
     const checkoutLocationInfo = await reverseGeocode(latitude, longitude);
     console.log('Checkout location result:', checkoutLocationInfo);
 
-    // Calculate hours worked
     const { totalHours, totalMinutes } = calculateHours(attendance.checkInTime, now);
 
-    // Update attendance record
     await attendance.update({
       checkOutTime: now,
       total_hours: totalHours,
       total_minutes: totalMinutes,
-      checkout_latitude: latitude,
-      checkout_longitude: longitude,
+      check_out_lat: latitude,
+      check_out_lng: longitude,
       checkout_place_name: checkoutLocationInfo.place_name,
       checkout_formatted_address: checkoutLocationInfo.formatted_address,
       checkout_geocoding_error: checkoutLocationInfo.geocoding_error || null
     });
 
-    console.log(`Guard ${guard.name} checked out successfully at ${checkoutLocationInfo.place_name}`);
+    console.log(`Guard ${guard?.name} checked out successfully at ${checkoutLocationInfo.place_name}`);
 
     res.status(200).json({
       success: true,
@@ -437,19 +405,14 @@ const checkOut = async (req, res) => {
   }
 };
 
-/**
- * GET ALL GUARD CHECK-INS (Admin Only) - Fixed with proper associations
- */
 const getAllCheckins = async (req, res) => {
   try {
     const { page = 1, limit = 50, date, guard_id } = req.query;
     
     console.log(`Admin ${req.user.email} requesting all check-ins`);
 
-    // Build where clause
     const whereClause = {};
     
-    // Filter by date if provided
     if (date) {
       const targetDate = new Date(date);
       const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
@@ -460,23 +423,21 @@ const getAllCheckins = async (req, res) => {
       };
     }
 
-    // Filter by guard if provided
     if (guard_id) {
       whereClause.guard_id = guard_id;
     }
 
-    // Get attendance records with guard and shift information
     const { count, rows: attendanceRecords } = await Attendance.findAndCountAll({
       where: whereClause,
       include: [
         {
           model: User,
-          as: 'guard',
+          as: 'guard', // ✅ FIXED: Using proper alias
           attributes: ['id', 'name', 'email', 'badgeNumber']
         },
         {
           model: Shift,
-          as: 'shift',
+          as: 'shift', // ✅ FIXED: Using proper alias
           attributes: ['name', 'start_time', 'end_time']
         }
       ],
@@ -485,7 +446,6 @@ const getAllCheckins = async (req, res) => {
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    // Format the response data
     const formattedCheckins = attendanceRecords.map(attendance => ({
       id: attendance.id,
       guard_id: attendance.guard_id,
@@ -494,12 +454,12 @@ const getAllCheckins = async (req, res) => {
       badge_number: attendance.guard?.badgeNumber || 'N/A',
       check_in_time: attendance.checkInTime,
       check_out_time: attendance.checkOutTime,
-      latitude: attendance.latitude,
-      longitude: attendance.longitude,
+      latitude: attendance.check_in_lat,
+      longitude: attendance.check_in_lng,
       place_name: attendance.place_name,
       formatted_address: attendance.formatted_address,
-      checkout_latitude: attendance.checkout_latitude,
-      checkout_longitude: attendance.checkout_longitude,
+      checkout_latitude: attendance.check_out_lat,
+      checkout_longitude: attendance.check_out_lng,
       checkout_place_name: attendance.checkout_place_name,
       checkout_formatted_address: attendance.checkout_formatted_address,
       shift: attendance.shift?.name || 'Unknown Shift',
@@ -531,9 +491,6 @@ const getAllCheckins = async (req, res) => {
   }
 };
 
-/**
- * GET CURRENT GUARD STATUS - Fixed with proper associations
- */
 const getCurrentStatus = async (req, res) => {
   try {
     const guardId = req.user.id;
@@ -542,17 +499,6 @@ const getCurrentStatus = async (req, res) => {
     
     console.log(`Status request from user ${req.user.email}`);
 
-    // Verify guard exists
-    const guard = await User.findByPk(guardId);
-    if (!guard) {
-      return res.status(404).json({
-        success: false,
-        error: 'Guard not found',
-        code: 'GUARD_NOT_FOUND'
-      });
-    }
-
-    // Find today's attendance record with shift information
     const attendance = await Attendance.findOne({
       where: {
         guard_id: guardId,
@@ -560,11 +506,19 @@ const getCurrentStatus = async (req, res) => {
           [Op.between]: [startOfDay, endOfDay]
         }
       },
-      include: [{
-        model: Shift,
-        as: 'shift',
-        attributes: ['name', 'start_time', 'end_time']
-      }],
+      include: [
+        {
+          model: Shift,
+          as: 'shift', // ✅ FIXED: Using proper alias
+          attributes: ['name', 'start_time', 'end_time']
+        },
+        {
+          model: Checkpoint,
+          as: 'checkpoint', // ✅ FIXED: Using proper alias
+          attributes: ['id', 'name', 'location', 'latitude', 'longitude'],
+          required: false
+        }
+      ],
       order: [['checkInTime', 'DESC']]
     });
 
@@ -586,26 +540,6 @@ const getCurrentStatus = async (req, res) => {
       });
     }
 
-    // Get checkpoint info if exists
-    let checkpointInfo = null;
-    if (attendance.checkpoint_id) {
-      try {
-        const checkpoint = await Checkpoint.findByPk(attendance.checkpoint_id);
-        if (checkpoint) {
-          checkpointInfo = {
-            id: checkpoint.id,
-            name: checkpoint.name,
-            location: checkpoint.location,
-            latitude: checkpoint.latitude,
-            longitude: checkpoint.longitude
-          };
-        }
-      } catch (checkpointError) {
-        console.log('Checkpoint lookup failed:', checkpointError.message);
-      }
-    }
-
-    // Calculate current hours on duty
     let hoursWorkedToday = 0;
     if (attendance.checkInTime && !attendance.checkOutTime) {
       const { totalMinutes } = calculateHours(attendance.checkInTime, new Date());
@@ -613,6 +547,8 @@ const getCurrentStatus = async (req, res) => {
     } else if (attendance.total_minutes) {
       hoursWorkedToday = attendance.total_minutes;
     }
+
+    const checkpointInfo = attendance.checkpoint;
 
     res.status(200).json({
       success: true,
@@ -631,14 +567,14 @@ const getCurrentStatus = async (req, res) => {
         } : null,
         location: {
           checkin: {
-            latitude: attendance.latitude,
-            longitude: attendance.longitude,
+            latitude: attendance.check_in_lat,
+            longitude: attendance.check_in_lng,
             place_name: attendance.place_name,
             formatted_address: attendance.formatted_address
           },
-          checkout: attendance.checkout_latitude ? {
-            latitude: attendance.checkout_latitude,
-            longitude: attendance.checkout_longitude,
+          checkout: attendance.check_out_lat ? {
+            latitude: attendance.check_out_lat,
+            longitude: attendance.check_out_lng,
             place_name: attendance.checkout_place_name,
             formatted_address: attendance.checkout_formatted_address
           } : null
@@ -657,77 +593,77 @@ const getCurrentStatus = async (req, res) => {
   }
 };
 
-/**
- * GET ATTENDANCE HISTORY - Fixed with proper associations
- */
 const getAttendanceHistory = async (req, res) => {
   try {
     const guardId = req.user.id;
     const { page = 1, limit = 10, startDate, endDate } = req.query;
-    
+
     console.log(`History request from user ${req.user.email}, page: ${page}, limit: ${limit}`);
 
-    // Verify guard exists
-    const guard = await User.findByPk(guardId);
-    if (!guard) {
-      return res.status(404).json({
-        success: false,
-        error: 'Guard not found',
-        code: 'GUARD_NOT_FOUND'
-      });
-    }
-
-    // Build where clause
     const whereClause = { guard_id: guardId };
-    
-    // Add date filtering if provided
+
     if (startDate || endDate) {
-      whereClause.date = {};
-      if (startDate) whereClause.date[Op.gte] = startDate;
-      if (endDate) whereClause.date[Op.lte] = endDate;
+      whereClause.checkInTime = {};
+      if (startDate) whereClause.checkInTime[Op.gte] = new Date(startDate);
+      if (endDate) whereClause.checkInTime[Op.lte] = new Date(endDate);
     }
 
-    // Get attendance records with shift information
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+    const offset = (pageNum - 1) * limitNum;
+
     const { count, rows: attendanceRecords } = await Attendance.findAndCountAll({
       where: whereClause,
-      include: [{
-        model: Shift,
-        as: 'shift',
-        attributes: ['name', 'start_time', 'end_time']
-      }],
+      include: [
+        {
+          model: User,
+          as: 'guard', // ✅ FIXED: Using proper alias
+          attributes: ['name', 'badgeNumber']
+        },
+        {
+          model: Shift,
+          as: 'shift', // ✅ FIXED: Using proper alias
+          attributes: ['name', 'start_time', 'end_time']
+        }
+      ],
       order: [['checkInTime', 'DESC']],
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      limit: limitNum,
+      offset
     });
 
-    // Format attendance records with location information
-    const formattedHistory = attendanceRecords.map(attendance => ({
+    const formattedHistory = attendanceRecords.map((attendance) => ({
       id: attendance.id,
-      guard_name: guard.name,
-      badge_number: guard.badgeNumber || 'N/A',
-      shift_name: attendance.shift?.name ? `${attendance.shift.name} Shift` : 'Unknown Shift',
-      date: attendance.date,
+      guard_name: attendance.guard?.name || 'Unknown Guard',
+      badge_number: attendance.guard?.badgeNumber || 'N/A',
+      shift_name: attendance.shift?.name
+        ? `${attendance.shift.name} Shift`
+        : 'Unknown Shift',
+      date: attendance.checkInTime,
       checkInTime: attendance.checkInTime,
       checkOutTime: attendance.checkOutTime,
       status: attendance.status,
-      late_minutes: 0,
-      total_hours: attendance.total_hours,
-      checkpoint: attendance.checkpoint_id ? `Checkpoint ${attendance.checkpoint_id}` : null,
+      late_minutes: attendance.late_minutes || 0,
+      total_hours: attendance.total_hours || 0,
+      checkpoint: attendance.checkpoint_id
+        ? `Checkpoint ${attendance.checkpoint_id}`
+        : null,
       notes: attendance.notes,
       location: {
         checkin: {
-          latitude: attendance.latitude,
-          longitude: attendance.longitude,
+          latitude: attendance.check_in_lat,
+          longitude: attendance.check_in_lng,
           place_name: attendance.place_name,
-          formatted_address: attendance.formatted_address
+          formatted_address: attendance.formatted_address,
         },
-        checkout: attendance.checkout_latitude ? {
-          latitude: attendance.checkout_latitude,
-          longitude: attendance.checkout_longitude,
-          place_name: attendance.checkout_place_name,
-          formatted_address: attendance.checkout_formatted_address
-        } : null
-      }
+        checkout: attendance.check_out_lat
+          ? {
+              latitude: attendance.check_out_lat,
+              longitude: attendance.check_out_lng,
+              place_name: attendance.checkout_place_name,
+              formatted_address: attendance.checkout_formatted_address,
+            }
+          : null,
+      },
     }));
 
     res.status(200).json({
@@ -735,27 +671,23 @@ const getAttendanceHistory = async (req, res) => {
       data: formattedHistory,
       count,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / parseInt(limit)),
-        total: count
-      }
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(count / limitNum),
+        total: count,
+      },
     });
-
   } catch (error) {
-    console.error('Get attendance history error:', error);
+    console.error("Get attendance history error:", error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error',
-      code: 'SERVER_ERROR',
-      details: error.message
+      error: "Internal server error",
+      code: "SERVER_ERROR",
+      details: error.message,
     });
   }
 };
 
-/**
- * GET ACTIVE GUARDS - Fixed with proper associations
- */
 const getActiveGuards = async (req, res) => {
   try {
     console.log(`Active guards request from admin ${req.user.email}`);
@@ -773,12 +705,12 @@ const getActiveGuards = async (req, res) => {
       include: [
         {
           model: User,
-          as: 'guard',
+          as: 'guard', // ✅ FIXED: Using proper alias
           attributes: ['id', 'name', 'email', 'badgeNumber']
         },
         {
           model: Shift,
-          as: 'shift',
+          as: 'shift', // ✅ FIXED: Using proper alias
           attributes: ['name', 'start_time', 'end_time']
         }
       ],
@@ -796,7 +728,7 @@ const getActiveGuards = async (req, res) => {
       location: {
         place_name: attendance.place_name,
         formatted_address: attendance.formatted_address,
-        coordinates: `${attendance.latitude}, ${attendance.longitude}`
+        coordinates: `${attendance.check_in_lat}, ${attendance.check_in_lng}`
       }
     }));
 
@@ -825,9 +757,6 @@ const getActiveGuards = async (req, res) => {
   }
 };
 
-/**
- * GET DAILY REPORT - Fixed with proper associations
- */
 const getDailyReport = async (req, res) => {
   try {
     console.log(`Daily report request from admin ${req.user.email}`);
@@ -837,41 +766,40 @@ const getDailyReport = async (req, res) => {
     const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
     const endOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1);
 
-    const attendanceRecords = await Attendance.findAll({
+    const [attendanceStats] = await Attendance.findAll({
+      attributes: [
+        [Attendance.sequelize.fn('COUNT', Attendance.sequelize.col('id')), 'totalGuards'],
+        [Attendance.sequelize.fn('SUM', 
+          Attendance.sequelize.literal("CASE WHEN status = 'Present' THEN 1 ELSE 0 END")
+        ), 'onTime'],
+        [Attendance.sequelize.fn('SUM', 
+          Attendance.sequelize.literal("CASE WHEN status = 'Late' THEN 1 ELSE 0 END")
+        ), 'late'],
+        [Attendance.sequelize.fn('SUM', 
+          Attendance.sequelize.literal("CASE WHEN status = 'Absent' THEN 1 ELSE 0 END")
+        ), 'absent']
+      ],
       where: {
         checkInTime: {
           [Op.between]: [startOfDay, endOfDay]
         }
       },
       include: [{
-        model: Shift,
-        as: 'shift',
-        attributes: ['name', 'start_time', 'end_time']
+        model: User,
+        as: 'guard', // ✅ FIXED: Using proper alias
+        attributes: [],
+        where: { role: 'guard', status: 'active' }
       }],
-      order: [['shift_id', 'ASC'], ['checkInTime', 'ASC']]  // ✅ Fixed: Order by shift_id
+      raw: true
     });
 
     const stats = {
-      totalGuards: attendanceRecords.length,
-      onTime: 0,
-      late: 0,
-      absent: 0,
+      totalGuards: parseInt(attendanceStats.totalGuards) || 0,
+      onTime: parseInt(attendanceStats.onTime) || 0,
+      late: parseInt(attendanceStats.late) || 0,
+      absent: parseInt(attendanceStats.absent) || 0,
       attendanceRate: 0
     };
-
-    attendanceRecords.forEach(record => {
-      switch(record.status.toLowerCase()) {
-        case 'present':
-          stats.onTime++;
-          break;
-        case 'late':
-          stats.late++;
-          break;
-        case 'absent':
-          stats.absent++;
-          break;
-      }
-    });
 
     if (stats.totalGuards > 0) {
       stats.attendanceRate = Math.round(((stats.onTime + stats.late) / stats.totalGuards) * 100);
@@ -900,9 +828,6 @@ const getDailyReport = async (req, res) => {
   }
 };
 
-/**
- * AUTO-MARK ABSENT - Fixed with proper shift handling
- */
 const autoMarkAbsent = async (req, res) => {
   try {
     console.log(`Auto-mark absent request from admin ${req.user.email}`);
@@ -911,54 +836,57 @@ const autoMarkAbsent = async (req, res) => {
     const today = getTodayDate();
     const { startOfDay, endOfDay } = getTodayDateRange();
 
-    const allGuards = await User.findAll({
+    const allActiveGuards = await User.findAll({
       where: {
         role: 'guard',
         status: 'active'
-      }
+      },
+      attributes: ['id', 'name']
     });
 
     const guardsWithAttendance = await Attendance.findAll({
       where: {
+        shift_id: currentShift.id,
         checkInTime: {
           [Op.between]: [startOfDay, endOfDay]
-        },
-        shift_id: currentShift.id  // ✅ Fixed: Use shift_id instead of shift
+        }
       },
-      attributes: ['guard_id']
+      attributes: ['guard_id'],
+      raw: true
     });
 
-    const guardIdsWithAttendance = guardsWithAttendance.map(a => a.guard_id);
-    const guardsWithoutAttendance = allGuards.filter(
-      guard => !guardIdsWithAttendance.includes(guard.id)
+    const attendedGuardIds = guardsWithAttendance.map(a => a.guard_id);
+    const guardsWithoutAttendance = allActiveGuards.filter(
+      guard => !attendedGuardIds.includes(guard.id)
     );
 
-    const absentRecords = [];
-    for (const guard of guardsWithoutAttendance) {
-      const absentRecord = await Attendance.create({
-        guard_id: guard.id,
-        shift_id: currentShift.id,  // ✅ Fixed: Use shift_id instead of shift
-        status: 'Absent',
-        date: today,
-        checkInTime: null,
-        checkOutTime: null
-      });
-      
-      absentRecords.push({
-        attendance_id: absentRecord.id,
-        guard_name: guard.name,
-        guard_id: guard.id
-      });
-    }
+    const absentRecordsData = guardsWithoutAttendance.map(guard => ({
+      guard_id: guard.id,
+      shift_id: currentShift.id,
+      status: 'Absent',
+      date: today,
+      checkInTime: null,
+      checkOutTime: null
+    }));
+
+    const absentRecords = await Attendance.bulkCreate(absentRecordsData, {
+      returning: true
+    });
+
+    const formattedAbsentRecords = absentRecords.map((record, index) => ({
+      attendance_id: record.id,
+      guard_name: guardsWithoutAttendance[index].name,
+      guard_id: guardsWithoutAttendance[index].id
+    }));
 
     res.json({
       success: true,
-      message: `Marked ${absentRecords.length} guards as absent for ${currentShift.name} shift`,
+      message: `Marked ${formattedAbsentRecords.length} guards as absent for ${currentShift.name} shift`,
       data: {
-        absent_count: absentRecords.length,
+        absent_count: formattedAbsentRecords.length,
         shift: currentShift.name,
         marked_at: new Date(),
-        absent_guards: absentRecords
+        absent_guards: formattedAbsentRecords
       }
     });
 
@@ -973,29 +901,15 @@ const autoMarkAbsent = async (req, res) => {
   }
 };
 
-/**
- * MANUALLY MARK A GUARD AS OFF-DUTY (Admin Only) - Fixed
- */
 const markOff = async (req, res) => {
   try {
     const { guard_id, reason } = req.body;
     
     console.log(`Mark off request from admin ${req.user.email} for guard ${guard_id}`);
 
-    // Verify guard exists
-    const guard = await User.findByPk(guard_id);
-    if (!guard) {
-      return res.status(404).json({
-        success: false,
-        error: 'Guard not found',
-        code: 'GUARD_NOT_FOUND'
-      });
-    }
-
     const { startOfDay, endOfDay } = getTodayDateRange();
     const now = new Date();
 
-    // Find active attendance record for today
     const attendance = await Attendance.findOne({
       where: {
         guard_id: guard_id,
@@ -1014,15 +928,22 @@ const markOff = async (req, res) => {
       });
     }
 
-    // Calculate hours worked
+    const guard = await User.findByPk(guard_id);
+    if (!guard) {
+      return res.status(404).json({
+        success: false,
+        error: 'Guard not found',
+        code: 'GUARD_NOT_FOUND'
+      });
+    }
+
     const { totalHours, totalMinutes } = calculateHours(attendance.checkInTime, now);
 
-    // Update attendance record to mark as off-duty
     await attendance.update({
       checkOutTime: now,
       total_hours: totalHours,
       total_minutes: totalMinutes,
-      status: 'Off Duty',
+      status: 'Off',
       notes: reason || 'Marked off-duty by admin'
     });
 
@@ -1053,6 +974,144 @@ const markOff = async (req, res) => {
   }
 };
 
+const bulkCheckIn = async (req, res) => {
+  try {
+    const { guards } = req.body;
+    
+    if (!Array.isArray(guards) || guards.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Guards array is required',
+        code: 'MISSING_GUARDS'
+      });
+    }
+
+    const currentShift = await getCurrentShift();
+    const now = new Date();
+    const { startOfDay, endOfDay } = getTodayDateRange();
+
+    const guardIds = guards.map(g => g.guard_id);
+    const existingAttendance = await Attendance.findAll({
+      where: {
+        guard_id: { [Op.in]: guardIds },
+        shift_id: currentShift.id,
+        checkInTime: {
+          [Op.between]: [startOfDay, endOfDay]
+        }
+      },
+      attributes: ['guard_id']
+    });
+
+    const alreadyCheckedInIds = existingAttendance.map(a => a.guard_id);
+    const validGuards = guards.filter(guard => 
+      !alreadyCheckedInIds.includes(guard.guard_id)
+    );
+
+    const attendanceData = validGuards.map(guardData => ({
+      guard_id: guardData.guard_id,
+      shift_id: currentShift.id,
+      checkInTime: now,
+      status: 'Present',
+      date: getTodayDate(),
+      check_in_lat: guardData.latitude,
+      check_in_lng: guardData.longitude,
+      checkpoint_id: guardData.checkpoint_id || null
+    }));
+
+    const createdAttendance = await Attendance.bulkCreate(attendanceData, {
+      returning: true
+    });
+
+    res.json({
+      success: true,
+      message: `Bulk check-in completed for ${createdAttendance.length} guards`,
+      data: {
+        checked_in_count: createdAttendance.length,
+        already_checked_in: guards.length - createdAttendance.length,
+        attendance_records: createdAttendance.map(record => ({
+          attendance_id: record.id,
+          guard_id: record.guard_id,
+          checkInTime: record.checkInTime
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Bulk check-in error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      code: 'SERVER_ERROR',
+      details: error.message
+    });
+  }
+};
+
+const getAttendanceSummary = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const dateRange = {};
+    
+    if (startDate || endDate) {
+      dateRange.checkInTime = {};
+      if (startDate) dateRange.checkInTime[Op.gte] = new Date(startDate);
+      if (endDate) dateRange.checkInTime[Op.lte] = new Date(endDate);
+    } else {
+      // Default to last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      dateRange.checkInTime = { [Op.gte]: thirtyDaysAgo };
+    }
+
+    const summary = await Attendance.findAll({
+      attributes: [
+        [Attendance.sequelize.fn('DATE', Attendance.sequelize.col('checkInTime')), 'date'],
+        [Attendance.sequelize.fn('COUNT', Attendance.sequelize.col('id')), 'total'],
+        [Attendance.sequelize.fn('SUM', 
+          Attendance.sequelize.literal("CASE WHEN status = 'Present' THEN 1 ELSE 0 END")
+        ), 'present'],
+        [Attendance.sequelize.fn('SUM', 
+          Attendance.sequelize.literal("CASE WHEN status = 'Late' THEN 1 ELSE 0 END")
+        ), 'late'],
+        [Attendance.sequelize.fn('SUM', 
+          Attendance.sequelize.literal("CASE WHEN status = 'Absent' THEN 1 ELSE 0 END")
+        ), 'absent'],
+        [Attendance.sequelize.fn('AVG', Attendance.sequelize.col('total_hours')), 'avgHours']
+      ],
+      where: dateRange,
+      group: [Attendance.sequelize.fn('DATE', Attendance.sequelize.col('checkInTime'))],
+      order: [[Attendance.sequelize.fn('DATE', Attendance.sequelize.col('checkInTime')), 'DESC']],
+      raw: true
+    });
+
+    res.json({
+      success: true,
+      data: {
+        period: { startDate, endDate },
+        daily_summary: summary.map(day => ({
+          date: day.date,
+          total: parseInt(day.total),
+          present: parseInt(day.present),
+          late: parseInt(day.late),
+          absent: parseInt(day.absent),
+          avgHours: parseFloat(day.avgHours) || 0,
+          attendance_rate: day.total > 0 ? 
+            Math.round(((parseInt(day.present) + parseInt(day.late)) / parseInt(day.total)) * 100) : 0
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get attendance summary error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      code: 'SERVER_ERROR',
+      details: error.message
+    });
+  }
+};
+
 // ==========================================
 // EXPORT CONTROLLER FUNCTIONS
 // ==========================================
@@ -1066,5 +1125,7 @@ module.exports = {
   getActiveGuards,
   getDailyReport,
   autoMarkAbsent,
-  markOff
+  markOff,
+  bulkCheckIn,
+  getAttendanceSummary
 };

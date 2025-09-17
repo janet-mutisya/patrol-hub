@@ -70,7 +70,7 @@ console.log("Checkpoint routes mounted on /api/checkpoints");
 // Patrol log routes
 const patrolLogRoutes = require("./routes/patrolLogRoutes");
 app.use("/api/patrol-logs", patrolLogRoutes);
-console.log("Patrol log routes mounted on /api/patrol-logs");
+console.log("Patrol log routes mounted on /api/patrolLogs");
 
 // Report routes
 const reportRoutes = require("./routes/reportRoutes");
