@@ -1055,36 +1055,8 @@ const AttendanceSystem = ({
                   </AlertDescription>
                 </Alert>
               )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-4 pt-4 border-t">
-                <Button
-                  onClick={handleCheckIn}
-                  disabled={
-                    loading.action || 
-                    attendanceStatus.isCheckedIn || 
-                    checkpoints.length === 0 ||
-                    (nearestCheckpoint && nearestCheckpoint.distance > MAX_CHECKPOINT_DISTANCE)
-                  }
-                  className="bg-green-600 hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
-                >
-                  <MapPin className="h-4 w-4" />
-                  {loading.action ? 'Checking In...' : 'Check In'}
-                </Button>
-
-                <Button
-                  onClick={handleCheckOut}
-                  disabled={
-                    loading.action || 
-                    !attendanceStatus.isCheckedIn
-                  }
-                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
-                >
-                  <Timer className="h-4 w-4" />
-                  {loading.action ? 'Checking Out...' : 'Check Out'}
-                </Button>
-                
-                <Button
+               <div>
+                 <Button
                   variant="outline"
                   onClick={() => {
                     setError(null);

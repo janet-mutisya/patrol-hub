@@ -15,44 +15,48 @@ const Login = () => {
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  try {
+    const res = await apiCall("/auth/login", {
+      method: "POST",
+      body: {
+        email: form.email.trim().toLowerCase(),
+        password: form.password.trim(),
+      },
+    });
 
-    try {
-      const res = await apiCall("/auth/login", {
-        method: "POST",
-        body: {
-          email: form.email.trim().toLowerCase(), // normalize email
-          password: form.password.trim(), // trim password
-        },
-      });
-
-      if (!res.success) {
-        throw new Error(res.message || "Login failed");
-      }
-
-      // Fix: access nested data correctly
-      const { user, token } = res.data;
-
-      localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
-
-      alert("✅ Login successful!");
-
-      if (user.role === "admin") {
-        navigate("/admin");
-      } else {
-        navigate("/guard");
-      }
-    } catch (err) {
-      console.error("Login error:", err);
-      alert("❌ Invalid credentials.");
-    } finally {
-      setLoading(false);
+    if (!res.success) {
+      throw new Error(res.message || "Login failed");
     }
-  };
+
+    // match backend response
+    const { user, role, token } = res.data;
+
+    if (!token || !role) {
+      throw new Error("Invalid login response: missing token or role");
+    }
+
+    localStorage.setItem("token", token);
+    // save role inside user object so useAuth can read it
+    localStorage.setItem("user", JSON.stringify({ ...user, role }));
+
+    alert(" Login successful!");
+
+    if (role === "admin") {
+      navigate("/admin");
+    } else {
+      navigate("/guard");
+    }
+  } catch (err) {
+    console.error("Login error:", err);
+    alert(" Invalid credentials.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="h-screen flex items-center justify-center bg-gray-100">

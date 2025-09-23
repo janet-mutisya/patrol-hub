@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import CheckpointPage from "@/pages/checkpoint";
 import PatrolLogPage from "@/pages/patrolLog";
 import ReportPage from "@/pages/Report";
@@ -9,16 +9,16 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import GuardDashboard from "@/pages/GuardDashboard";
 import Signup from "@/pages/Signup";
 import Login from "@/pages/Login";
+import { authHelper } from "@/lib/api";
 
-// Fixed auth helper - reads user data from localStorage
+// Hook-like wrapper to use auth state
 const useAuth = () => {
-  const storedUser = localStorage.getItem("user");
-  const user = storedUser ? JSON.parse(storedUser) : {};
-
+  const token = localStorage.getItem("token");
+  const user = authHelper.getUser();
   return {
     user: {
-      role: user.role || null,
-      token: localStorage.getItem("token") || null,
+      role: user?.role || null,
+      token,
     },
   };
 };
@@ -27,22 +27,37 @@ const useAuth = () => {
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user } = useAuth();
 
+  // Not logged in → redirect
   if (!user.token) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!allowedRoles.includes(user.role)) {
-    return <Navigate to="/" replace />;
+  // Logged in but role not allowed → redirect by role
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (user.role === "admin") {
+      return <Navigate to="/admin" replace />;
+    } else if (user.role === "guard") {
+      return <Navigate to="/guard-dashboard" replace />;
+    }
+    return <Navigate to="/login" replace />;
   }
 
   return children;
 };
 
+// Guard Layout (if you want a consistent layout for guard routes)
+const GuardLayout = () => (
+  <div>
+    <Outlet />
+  </div>
+);
+
 function App() {
   return (
     <Routes>
       {/* Public pages */}
-      <Route path="/" element={<Signup />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/signup" element={<Signup />} />
       <Route path="/login" element={<Login />} />
 
       {/* Admin routes */}
@@ -58,7 +73,7 @@ function App() {
         }
       />
       <Route
-        path="/user"
+        path="/users"
         element={
           <ProtectedRoute allowedRoles={["admin"]}>
             <UserPage
@@ -69,7 +84,7 @@ function App() {
         }
       />
       <Route
-        path="/shift"
+        path="/shifts"
         element={
           <ProtectedRoute allowedRoles={["admin"]}>
             <ShiftPage
@@ -79,21 +94,10 @@ function App() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/attendance"
-        element={
-          <ProtectedRoute allowedRoles={["admin"]}>
-            <AttendancePage
-              authToken={localStorage.getItem("token")}
-              userRole="admin"
-            />
-          </ProtectedRoute>
-        }
-      />
 
-      {/* Guard routes */}
+      {/* Guard Dashboard - main landing */}
       <Route
-        path="/guard"
+        path="/guard-dashboard"
         element={
           <ProtectedRoute allowedRoles={["guard"]}>
             <GuardDashboard
@@ -103,28 +107,37 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* Guard routes - match sidebar links */}
       <Route
-        path="/checkpoint"
+        path="/attendance"
         element={
           <ProtectedRoute allowedRoles={["guard", "admin"]}>
-            <CheckpointPage
+            <AttendancePage
               authToken={localStorage.getItem("token")}
-              userRole={
-                JSON.parse(localStorage.getItem("user") || "{}")?.role
-              }
+              userRole={authHelper.getUser()?.role}
             />
           </ProtectedRoute>
         }
       />
       <Route
-        path="/patrolLog"
+        path="/patrol"
         element={
           <ProtectedRoute allowedRoles={["guard", "admin"]}>
             <PatrolLogPage
               authToken={localStorage.getItem("token")}
-              userRole={
-                JSON.parse(localStorage.getItem("user") || "{}")?.role
-              }
+              userRole={authHelper.getUser()?.role}
+            />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/checkin"
+        element={
+          <ProtectedRoute allowedRoles={["guard", "admin"]}>
+            <CheckpointPage
+              authToken={localStorage.getItem("token")}
+              userRole={authHelper.getUser()?.role}
             />
           </ProtectedRoute>
         }
@@ -135,16 +148,28 @@ function App() {
           <ProtectedRoute allowedRoles={["guard", "admin"]}>
             <ReportPage
               authToken={localStorage.getItem("token")}
-              userRole={
-                JSON.parse(localStorage.getItem("user") || "{}")?.role
-              }
+              userRole={authHelper.getUser()?.role}
             />
           </ProtectedRoute>
         }
       />
 
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      {/* Default dashboard redirect */}
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["admin", "guard"]}>
+            {authHelper.getUser()?.role === "admin" ? (
+              <Navigate to="/admin" replace />
+            ) : (
+              <Navigate to="/guard-dashboard" replace />
+            )}
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Catch-all: send logged-in users to dashboard */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

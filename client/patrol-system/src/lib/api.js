@@ -5,20 +5,56 @@ const API_BASE_URL = process.env.NODE_ENV === 'production'
   : "http://localhost:5000/api";
 
 // ================================
-// Token Manager
+// Enhanced Token Manager
 // ================================
 const TokenManager = {
-  get: () => localStorage.getItem("token"),
-  set: (token, refreshToken) => {
-    if (token) localStorage.setItem("token", token);
-    if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
+  get: () => {
+    // Check both localStorage and sessionStorage for compatibility
+    return localStorage.getItem("token") || 
+           localStorage.getItem("authToken") || 
+           sessionStorage.getItem("token") || 
+           sessionStorage.getItem("authToken");
   },
+  
+  set: (token, refreshToken) => {
+    if (token) {
+      localStorage.setItem("token", token);
+      localStorage.setItem("authToken", token); // For backward compatibility
+    }
+    if (refreshToken) {
+      localStorage.setItem("refreshToken", refreshToken);
+    }
+  },
+  
   remove: () => {
+    // Clear all possible token storage locations
     localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("user");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("authToken");
   },
+  
   getRefresh: () => localStorage.getItem("refreshToken"),
+  
+  isValid: (token) => {
+    if (!token) return false;
+    
+    try {
+      // Check if it's a JWT token
+      if (token.includes('.')) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const isExpired = payload.exp * 1000 < Date.now();
+        return !isExpired;
+      }
+      // For non-JWT tokens, assume valid if exists
+      return true;
+    } catch (e) {
+      console.warn('Token validation failed:', e);
+      return false;
+    }
+  }
 };
 
 // ================================
@@ -46,7 +82,19 @@ const safeParseJSON = async (response) => {
 };
 
 // ================================
-// Core API Caller
+// Enhanced API Error Class
+// ================================
+class ApiError extends Error {
+  constructor(message, status, data = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
+// ================================
+// Core API Caller with Better Error Handling
 // ================================
 export const apiCall = async (endpoint, options = {}) => {
   const url = endpoint.startsWith("http")
@@ -54,6 +102,12 @@ export const apiCall = async (endpoint, options = {}) => {
     : `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
   const token = TokenManager.get();
+
+  // Log the request for debugging
+  console.log(`API Request: ${options.method || 'GET'} ${endpoint}`, {
+    hasToken: !!token,
+    tokenValid: TokenManager.isValid(token)
+  });
 
   const config = {
     method: options.method || "GET",
@@ -63,7 +117,8 @@ export const apiCall = async (endpoint, options = {}) => {
     },
   };
 
-  if (token) {
+  // Only add token if it exists and is valid
+  if (token && TokenManager.isValid(token)) {
     config.headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -79,74 +134,86 @@ export const apiCall = async (endpoint, options = {}) => {
     response = await fetch(url, config);
   } catch (fetchError) {
     console.error(`Network error for ${url}:`, fetchError);
-    throw new Error("Network error: Unable to reach server. Please check your connection.");
+    throw new ApiError("Network error: Unable to reach server. Please check your connection.", 0);
   }
 
+  // Log response status
+  console.log(`API Response: ${endpoint} - ${response.status}`);
+
   // ================================
-  // Handle 401 → refresh token
+  // Handle 401 → refresh token or redirect
   // ================================
-  if (response.status === 401 && token && !endpoint.includes("/auth/")) {
-    if (isRefreshing) {
-      return new Promise((resolve, reject) =>
-        failedQueue.push({ resolve, reject })
-      ).then((newToken) => {
-        config.headers["Authorization"] = `Bearer ${newToken}`;
-        return fetch(url, config).then(safeParseJSON);
-      });
-    }
-
-    isRefreshing = true;
-    try {
-      const refreshToken = TokenManager.getRefresh();
-      if (!refreshToken) {
-        processQueue(new Error("No refresh token"));
-        TokenManager.remove();
-        window.location.href = "/login";
-        throw new Error("Authentication failed: missing refresh token");
-      }
-
-      const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      if (!refreshResponse.ok) {
-        processQueue(new Error("Token refresh failed"));
-        TokenManager.remove();
-        window.location.href = "/login";
-        throw new Error("Token refresh failed");
-      }
-
-      const refreshData = await safeParseJSON(refreshResponse);
-      const { token: newToken, refreshToken: newRefresh } =
-        refreshData?.data || refreshData || {};
-
-      if (!newToken) {
-        processQueue(new Error("Invalid refresh response"));
-        TokenManager.remove();
-        window.location.href = "/login";
-        throw new Error("Invalid refresh response");
-      }
-
-      TokenManager.set(newToken, newRefresh || refreshToken);
-      processQueue(null, newToken);
-
-      config.headers["Authorization"] = `Bearer ${newToken}`;
-      response = await fetch(url, config);
-    } catch (err) {
-      processQueue(err, null);
+  if (response.status === 401) {
+    console.warn(`401 Unauthorized for ${endpoint}`);
+    
+    // Don't try to refresh for auth endpoints or if already refreshing
+    if (endpoint.includes("/auth/") || !token || isRefreshing) {
       TokenManager.remove();
-      window.location.href = "/login";
-      throw err;
-    } finally {
-      isRefreshing = false;
+      // Don't redirect immediately - let the component handle it
+      throw new ApiError("Authentication required", 401);
+    }
+
+    // Try to refresh token
+    if (TokenManager.getRefresh()) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) =>
+          failedQueue.push({ resolve, reject })
+        ).then((newToken) => {
+          config.headers["Authorization"] = `Bearer ${newToken}`;
+          return fetch(url, config).then(safeParseJSON);
+        });
+      }
+
+      isRefreshing = true;
+      try {
+        const refreshToken = TokenManager.getRefresh();
+        const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+
+        if (!refreshResponse.ok) {
+          throw new Error("Token refresh failed");
+        }
+
+        const refreshData = await safeParseJSON(refreshResponse);
+        const { token: newToken, refreshToken: newRefresh } =
+          refreshData?.data || refreshData || {};
+
+        if (!newToken) {
+          throw new Error("Invalid refresh response");
+        }
+
+        TokenManager.set(newToken, newRefresh || refreshToken);
+        processQueue(null, newToken);
+
+        // Retry original request
+        config.headers["Authorization"] = `Bearer ${newToken}`;
+        response = await fetch(url, config);
+        
+        console.log(`Retry after refresh: ${endpoint} - ${response.status}`);
+        
+      } catch (refreshError) {
+        console.error('Token refresh failed:', refreshError);
+        processQueue(new ApiError("Session expired", 401), null);
+        TokenManager.remove();
+        throw new ApiError("Session expired. Please log in again.", 401);
+      } finally {
+        isRefreshing = false;
+      }
+    } else {
+      // No refresh token available
+      TokenManager.remove();
+      throw new ApiError("Authentication required", 401);
     }
   }
 
+  // Handle other HTTP errors
   if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}`;
+    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
     let errorData = {};
+    
     try {
       const contentType = response.headers.get("content-type");
       if (contentType?.includes("application/json")) {
@@ -154,38 +221,60 @@ export const apiCall = async (endpoint, options = {}) => {
         errorMessage = errorData.message || errorData.error || errorMessage;
       } else {
         const textResponse = await response.text();
-        errorMessage = `Server returned ${response.status}: ${response.statusText}`;
+        errorMessage = textResponse || errorMessage;
         errorData = { raw: textResponse };
       }
-    } catch (err) {
-      console.warn(`Error parsing error response from ${url}:`, err);
+    } catch (parseError) {
+      console.warn(`Error parsing error response from ${url}:`, parseError);
     }
-    const error = new Error(errorMessage);
-    error.status = response.status;
-    error.data = errorData;
-    throw error;
+    
+    throw new ApiError(errorMessage, response.status, errorData);
   }
 
   return safeParseJSON(response);
 };
 
 // ================================
-// Safe API Call Wrapper
+// Safe API Call Wrapper (Non-Throwing)
 // ================================
 export const safeApiCall = async (endpoint, options = {}) => {
   try {
     const result = await apiCall(endpoint, options);
-    if (result?.data !== undefined) return result.data;
-    return result;
+    console.log(`Safe API success: ${endpoint}`);
+    return result?.data !== undefined ? result.data : result;
   } catch (error) {
     console.warn(`Safe API call failed for ${endpoint}:`, error);
+    
+    // Don't log 401 errors as warnings since they're expected
+    if (error.status !== 401) {
+      console.error(`API Error for ${endpoint}:`, error.message);
+    }
+    
+    // Return sensible defaults based on endpoint type
     if (endpoint.includes("/users")) return [];
     if (endpoint.includes("/checkpoints")) return [];
     if (endpoint.includes("/shifts")) return [];
     if (endpoint.includes("/patrols")) return [];
-    if (endpoint.includes("/attendance")) return [];
+    if (endpoint.includes("/attendance")) return {};
     if (endpoint.includes("/reports")) return {};
     return null;
+  }
+};
+
+// ================================
+// Navigation Safe API Call (For Components)
+// ================================
+export const navigationSafeApiCall = async (endpoint, options = {}) => {
+  try {
+    return await apiCall(endpoint, options);
+  } catch (error) {
+    // For navigation components, we don't want to throw 401 errors
+    // Instead, we'll let the component handle authentication state
+    if (error.status === 401) {
+      console.warn(`Authentication required for ${endpoint} - component should handle this`);
+      return null;
+    }
+    throw error;
   }
 };
 
@@ -201,7 +290,7 @@ const api = {
 };
 
 // ================================
-// Dashboard Endpoints
+// Dashboard Endpoints (Updated)
 // ================================
 export const dashboardApi = {
   // ================================
@@ -215,70 +304,47 @@ export const dashboardApi = {
   // ================================
   // Users - Extended Endpoints
   // ================================
-  // Profile & Status
-  getMyProfile: () => safeApiCall("/users/me"),
-  getMyDutyStatus: () => safeApiCall("/users/me/duty-status"),
+  getMyProfile: () => navigationSafeApiCall("/users/me"),
+  getMyDutyStatus: () => navigationSafeApiCall("/users/me/duty-status"),
   toggleMyDutyStatus: (data = {}) => api.post("/users/me/duty-status", data),
+
+  // Attendance endpoints
+  checkIn: (data) => api.post("/attendance/check-in", data),
+  checkOut: (data) => api.post("/attendance/check-out", data),
+  getAttendanceStatus: () => navigationSafeApiCall("/attendance/status"),
 
   // User Assignment
   getAssignedGuards: () => safeApiCall("/users/assigned"),
   getUnassignedGuards: () => safeApiCall("/users/unassigned"),
   getGuardsByCheckpoint: (checkpointId) => safeApiCall(`/users/checkpoint/${checkpointId}/guards`),
 
-  // User Details & Security
-  getUserSecurityInfo: (id) => safeApiCall(`/users/${id}/security`),
-  getUserActivity: (id) => safeApiCall(`/users/${id}/activity`),
-
-  // User Management Actions
-  reactivateUser: (id, data = {}) => api.post(`/users/${id}/reactivate`, data),
-  assignUserToCheckpoint: (id, data) => api.post(`/users/${id}/assign-checkpoint`, data),
-  unassignUserFromCheckpoint: (id, data = {}) => api.post(`/users/${id}/unassign-checkpoint`, data),
-  unlockUserAccount: (id, data = {}) => api.post(`/users/${id}/unlock`, data),
-  resetUserLoginAttempts: (id, data = {}) => api.post(`/users/${id}/reset-login-attempts`, data),
-  changeUserPassword: (id, data) => api.post(`/users/${id}/change-password`, data),
-  resendEmailVerification: (id, data = {}) => api.post(`/users/${id}/resend-verification`, data),
-  forceVerifyEmail: (id, data = {}) => api.post(`/users/${id}/force-verify`, data),
-
   // ================================
   // Checkpoints
   // ================================
-  getCheckpoints: () => safeApiCall("/checkpoints"),
+  getCheckpoints: () => navigationSafeApiCall("/checkpoints"),
+  getNearbyCheckpoints: (data) => navigationSafeApiCall("/checkpoints/nearby", { method: "POST", body: data }),
   createCheckpoint: (data) => api.post("/checkpoints", data),
   updateCheckpoint: (id, data) => api.put(`/checkpoints/${id}`, data),
   deleteCheckpoint: (id) => api.delete(`/checkpoints/${id}`),
 
   // ================================
-  // Attendance
+  // Shifts
   // ================================
-  getAttendanceReport: () => safeApiCall("/attendance/daily-report"),
-  getActiveGuards: () => safeApiCall("/attendance/active-guards"),
-
+  getShifts: () => navigationSafeApiCall("/shifts"),
+  getCurrentShift: () => navigationSafeApiCall("/shifts/current"),
+  getShift: (id) => navigationSafeApiCall(`/shifts/${id}`),
+  
   // ================================
-  // Patrols
+  // Patrol Logs
   // ================================
+  getMyPatrolLogs: () => navigationSafeApiCall("/patrollogs/my-logs"),
   getPatrolLogs: () => safeApiCall("/patrol-logs"),
-
+  
   // ================================
-  // Shifts - Extended Endpoints
+  // Reports
   // ================================
-  getShifts: () => safeApiCall("/shifts"),
-  getCurrentShift: () => safeApiCall("/shifts/current"),
-  getShift: (id) => safeApiCall(`/shifts/${id}`),
-  getShiftStats: (id) => safeApiCall(`/shifts/${id}/stats`),
-  toggleShift: (id, data = {}) => api.post(`/shifts/${id}/toggle`, data),
-  setupDefaultShifts: (data) => api.post("/shifts/setup-defaults", data),
-
-  // ================================
-  // Reports - Extended Endpoints
-  // ================================
-  getSystemSummary: () => safeApiCall("/reports/summary"),
-  getMyPerformance: () => safeApiCall("/reports/my-performance"),
-  getMissedVisits: () => safeApiCall("/reports/missed-visits"),
-  getCheckpointReports: () => safeApiCall("/reports/checkpoints"),
-  getGuardReports: () => safeApiCall("/reports/guards"),
-  getGuardReport: (id) => safeApiCall(`/reports/guards/${id}`),
-  exportData: (type, format) =>
-    api.get(`/reports/export/${format}?type=${type}`),
+  getReportsSummary: () => navigationSafeApiCall("/reports/summary"),
+  getMyPerformance: () => navigationSafeApiCall("/reports/my-performance"),
 
   // ================================
   // Health & System
@@ -289,82 +355,76 @@ export const dashboardApi = {
 // ================================
 // User-specific API (for guards/users)
 // ================================
+// src/lib/api.js (bottom part where userApi is defined)
+
 export const userApi = {
   // Profile
   getProfile: () => dashboardApi.getMyProfile(),
   updateProfile: (data) => api.put("/users/me", data),
 
-  // Duty Status
+  // Duty Status & Attendance
   getDutyStatus: () => dashboardApi.getMyDutyStatus(),
-  toggleDutyStatus: (data) => dashboardApi.toggleMyDutyStatus(data),
+  getAttendanceStatus: () => dashboardApi.getAttendanceStatus(),
 
-  // Performance
+  checkIn: (data) => {
+    const checkpoint_id = localStorage.getItem("checkpoint_id");
+    if (!checkpoint_id) {
+      throw new Error("No checkpoint selected for check-in");
+    }
+    return dashboardApi.checkIn({ ...data, checkpoint_id });
+  },
+
+  checkOut: (data) => {
+    const checkpoint_id = localStorage.getItem("checkpoint_id");
+    if (!checkpoint_id) {
+      throw new Error("No checkpoint selected for check-out");
+    }
+    return dashboardApi.checkOut({ ...data, checkpoint_id });
+  },
+
+  // Checkpoints & Patrols
+  getCheckpoints: () => dashboardApi.getCheckpoints(),
+  getNearbyCheckpoints: (data) => dashboardApi.getNearbyCheckpoints(data),
+  getMyPatrolLogs: () => dashboardApi.getMyPatrolLogs(),
+
+  // Performance & Reports
   getMyPerformance: () => dashboardApi.getMyPerformance(),
-  getMissedVisits: () => dashboardApi.getMissedVisits(),
+  getReportsSummary: () => dashboardApi.getReportsSummary(),
 
   // Current shift
   getCurrentShift: () => dashboardApi.getCurrentShift(),
 };
 
 // ================================
-// Admin-specific API
+// Authentication Helper
 // ================================
-export const adminApi = {
-  // User Management
-  users: {
-    getAll: () => dashboardApi.getUsers(),
-    create: (data) => dashboardApi.createUser(data),
-    update: (id, data) => dashboardApi.updateUser(id, data),
-    delete: (id) => dashboardApi.deleteUser(id),
-    getAssigned: () => dashboardApi.getAssignedGuards(),
-    getUnassigned: () => dashboardApi.getUnassignedGuards(),
-    getByCheckpoint: (checkpointId) => dashboardApi.getGuardsByCheckpoint(checkpointId),
-    getSecurity: (id) => dashboardApi.getUserSecurityInfo(id),
-    getActivity: (id) => dashboardApi.getUserActivity(id),
-    reactivate: (id, data) => dashboardApi.reactivateUser(id, data),
-    assignCheckpoint: (id, data) => dashboardApi.assignUserToCheckpoint(id, data),
-    unassignCheckpoint: (id, data) => dashboardApi.unassignUserFromCheckpoint(id, data),
-    unlock: (id, data) => dashboardApi.unlockUserAccount(id, data),
-    resetLoginAttempts: (id, data) => dashboardApi.resetUserLoginAttempts(id, data),
-    changePassword: (id, data) => dashboardApi.changeUserPassword(id, data),
-    resendVerification: (id, data) => dashboardApi.resendEmailVerification(id, data),
-    forceVerify: (id, data) => dashboardApi.forceVerifyEmail(id, data),
+export const authHelper = {
+  isLoggedIn: () => {
+    const token = localStorage.getItem("token");
+    const storedUser = localStorage.getItem("user");
+
+    if (!token || !storedUser) return false;
+
+    try {
+      const user = JSON.parse(storedUser);
+      return !!(user.role && token); // true if role + token exist
+    } catch (e) {
+      console.error("Invalid user data in localStorage:", e);
+      return false;
+    }
   },
 
-  // Checkpoint Management
-  checkpoints: {
-    getAll: () => dashboardApi.getCheckpoints(),
-    create: (data) => dashboardApi.createCheckpoint(data),
-    update: (id, data) => dashboardApi.updateCheckpoint(id, data),
-    delete: (id) => dashboardApi.deleteCheckpoint(id),
+  getUser: () => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "{}");
+    } catch {
+      return {};
+    }
   },
 
-  // Shift Management
-  shifts: {
-    getAll: () => dashboardApi.getShifts(),
-    getCurrent: () => dashboardApi.getCurrentShift(),
-    get: (id) => dashboardApi.getShift(id),
-    getStats: (id) => dashboardApi.getShiftStats(id),
-    toggle: (id, data) => dashboardApi.toggleShift(id, data),
-    setupDefaults: (data) => dashboardApi.setupDefaultShifts(data),
-  },
-
-  // Reports
-  reports: {
-    getSystemSummary: () => dashboardApi.getSystemSummary(),
-    getCheckpoints: () => dashboardApi.getCheckpointReports(),
-    getGuards: () => dashboardApi.getGuardReports(),
-    getGuard: (id) => dashboardApi.getGuardReport(id),
-    getMissedVisits: () => dashboardApi.getMissedVisits(),
-    export: (type, format) => dashboardApi.exportData(type, format),
-  },
-
-  // System
-  system: {
-    healthCheck: () => dashboardApi.healthCheck(),
-    getAttendanceReport: () => dashboardApi.getAttendanceReport(),
-    getActiveGuards: () => dashboardApi.getActiveGuards(),
-    getPatrolLogs: () => dashboardApi.getPatrolLogs(),
+  logout: () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
   },
 };
 
@@ -390,4 +450,4 @@ export const NetworkMonitor = {
 // Convenience Exports
 // ================================
 export default api;
-export { TokenManager };
+export { TokenManager, ApiError };
